@@ -1,0 +1,34 @@
+# OmenMon
+# Git Ignored Files
+
+# Build output
+Bin/
+Obj/
+
+# Visual Studio / MSBuild
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.VC.opendb
+
+# NuGet
+packages/
+*.nupkg
+nuget.exe
+
+# JetBrains Rider / ReSharper
+.idea/
+_ReSharper*/
+*.DotSettings.user
+
+# Logs & crash dumps
+*.log
+*.dmp
+
+# OS junk
+Thumbs.db
+Desktop.ini
+.DS_Store
