@@ -7,7 +7,6 @@ using System.Diagnostics;
 using System.Threading;
 using System.Windows.Forms;
 using OmenMon.AppCli;
-using OmenMon.AppGui;
 using OmenMon.AppWpf;
 using OmenMon.Library;
 
@@ -32,7 +31,7 @@ namespace OmenMon {
             try {
 
                 // If no arguments were given,
-                // run in GUI (Windows Forms) mode
+                // run in GUI (WPF) mode
                 if(args.Length == 0) {
 
 #region GUI (WPF) Mode
@@ -42,11 +41,10 @@ namespace OmenMon {
                             // Launch the WPF application (manages its own tray + windows)
                             WpfApp.RunWpfApp();
                             mutex.ReleaseMutex();
-                        } else {
-                            if(Environment.GetEnvironmentVariable(Config.EnvVarSelfName) == null
-                                || Environment.GetEnvironmentVariable(Config.EnvVarSelfName).Contains(Config.EnvVarSelfValueGui))
-                                Gui.BroadcastMessage(Gui.MessageId, Gui.MessageParam.AnotherInstance);
                         }
+                        // A second instance simply exits: the mutex above prevents
+                        // duplicates. (The legacy WinForms cross-instance broadcast
+                        // was removed together with the old GUI.)
                     }
 #endregion
 
@@ -114,15 +112,26 @@ namespace OmenMon {
         // Handles an error depending on whether the application is running in CLI or GUI mode
         public static void Error(string messageIds, Exception e = null) {
 
-            if(Cli.IsInitialized)
+            if(Cli.IsInitialized) {
 
                 // Error out to the console
                 Cli.PrintError(Config.GetError(messageIds, e), e);
 
-            else
+            } else {
 
-                // Pop up a window
-                Gui.ShowError(Config.GetError(messageIds, e), e);
+                // Pop up a message box (the WinForms MessageBox is still
+                // available even though WPF is now the primary GUI)
+                string message = Config.GetError(messageIds, e);
+                MessageBox.Show(
+                    e == null ? message
+                        : message + Environment.NewLine + Environment.NewLine
+                            + e.Source + ": " + e.TargetSite + Environment.NewLine
+                            + Environment.NewLine + e.StackTrace,
+                    Config.AppName,
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
+
+            }
 
         }
 
@@ -135,10 +144,6 @@ namespace OmenMon {
                 // Make the command prompt reappear
                 // since that's the end of it
                 Cli.RestorePrompt();
-
-            // Running as a Windows Forms (GUI) application
-            if(GuiTray.Context != null && GuiTray.Context.Notification != null)
-                GuiTray.Context.Notification.Visible = false;
 
             System.Environment.Exit((int) code);
 
@@ -154,10 +159,6 @@ namespace OmenMon {
                 // Free the console, if running as a CLI app
                 if(Cli.IsInitialized)
                     Cli.Close();
-
-                // Close the forms, if running as a GUI app
-                if(Gui.IsInitialized)
-                    Gui.Close();
 
         }
 #endregion

@@ -23,6 +23,10 @@ namespace OmenMon.AppWpf {
         private readonly System.Collections.Generic.Dictionary<string, Button> _navButtons
             = new System.Collections.Generic.Dictionary<string, Button>();
 
+        // Always-on-top ("pin") toggle state
+        private Button _pinBtn;
+        private TextBlock _pinIcon;
+
         public MainWindow(HardwareViewModel vm) {
             _vm = vm;
             DataContext = vm;
@@ -93,6 +97,7 @@ namespace OmenMon.AppWpf {
             btnClose.Click += (s, e) => Hide();
             chrome.Children.Add(btnTheme);
             chrome.Children.Add(btnOverlay);
+            chrome.Children.Add(BuildPinButton());
             chrome.Children.Add(btnMin);
             chrome.Children.Add(btnClose);
             grid.Children.Add(chrome);
@@ -138,6 +143,8 @@ namespace OmenMon.AppWpf {
             nav.Children.Add(NavBtn("🌀", "风扇控制", "Fan"));
             nav.Children.Add(NavBtn("⚡", "性能模式", "Mode"));
             nav.Children.Add(NavBtn("📈", "曲线设置", "Curve"));
+            nav.Children.Add(NavBtn("🪟", "悬浮监控", "Overlay"));
+            nav.Children.Add(NavBtn("⚙", "设置", "Settings"));
             root.Children.Add(nav);
 
             // Hardware status mini-panel (live)
@@ -182,6 +189,8 @@ namespace OmenMon.AppWpf {
                 case "Fan":       _content.Navigate(new FanPage(_vm));       break;
                 case "Mode":      _content.Navigate(new ModePage(_vm));      break;
                 case "Curve":     _content.Navigate(new CurvePage(_vm));     break;
+                case "Overlay":   _content.Navigate(new OverlayPage(_vm));   break;
+                case "Settings":  _content.Navigate(new SettingsPage(_vm));  break;
             }
             // Reflect active state
             if(_navButtons.TryGetValue(page, out var btn) && btn != _activeNav) {
@@ -244,6 +253,38 @@ namespace OmenMon.AppWpf {
             btn.MouseEnter += (s, e) => { btn.Background = new SolidColorBrush(hover); btn.Foreground = T.Br(T.FgPri); };
             btn.MouseLeave += (s, e) => { btn.Background = SWM.Brushes.Transparent; btn.Foreground = T.Br(T.FgMute); };
             return btn;
+        }
+
+        // Always-on-top toggle. Uses the native Segoe MDL2 pin glyphs so the
+        // pin stands upright (Pinned) when on and tilts (Pin) when off.
+        private Button BuildPinButton() {
+            _pinBtn = new Button {
+                Width = 34, Height = 30,
+                Background = SWM.Brushes.Transparent,
+                BorderThickness = new Thickness(0),
+                Cursor = Cursors.Hand
+            };
+            _pinIcon = new TextBlock {
+                FontFamily = new SWM.FontFamily("Segoe MDL2 Assets"),
+                FontSize = 13,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            _pinBtn.Content = _pinIcon;
+            _pinBtn.Template = T.RoundedButtonTemplate(6);
+            _pinBtn.MouseEnter += (s, e) => { if(!Topmost) _pinBtn.Background = T.Br(T.BgHover); };
+            _pinBtn.MouseLeave += (s, e) => RefreshPin();
+            _pinBtn.Click += (s, e) => { Topmost = !Topmost; RefreshPin(); };
+            RefreshPin();
+            return _pinBtn;
+        }
+
+        private void RefreshPin() {
+            bool on = Topmost;
+            _pinIcon.Text       = ((char)(on ? 0xE840 : 0xE718)).ToString();   // pinned=upright pin, unpinned=tilted pin
+            _pinIcon.Foreground = on ? T.Br(T.Blue) : T.Br(T.FgMute);
+            _pinBtn.Background  = on ? T.Br(T.BgActive) : SWM.Brushes.Transparent;
+            _pinBtn.ToolTip     = on ? "已置顶 · 点击取消置顶" : "置顶显示";
         }
 
         private Grid SideStatRow(string label, string valueProp, string fmt, SWM.Color accent) {

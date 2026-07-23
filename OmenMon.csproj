@@ -61,16 +61,6 @@
         <Compile Include="App\Cli\CliOpEc.cs"/>
         <Compile Include="App\Cli\CliOpProg.cs"/>
         <Compile Include="App\Cli\CliOpTask.cs"/>
-        <Compile Include="App\Gui\Gui.cs"/>
-        <Compile Include="App\Gui\GuiOp.cs"/>
-        <Compile Include="App\Gui\GuiFilter.cs"/>
-        <Compile Include="App\Gui\GuiFormAbout.cs"/>
-        <Compile Include="App\Gui\GuiFormMain.cs"/>
-        <Compile Include="App\Gui\GuiFormMainInit.cs"/>
-        <Compile Include="App\Gui\GuiIcon.cs"/>
-        <Compile Include="App\Gui\GuiMenu.cs"/>
-        <Compile Include="App\Gui\GuiKbd.cs"/>
-        <Compile Include="App\Gui\GuiTray.cs"/>
         <Compile Include="Driver\Driver.cs"/>
         <Compile Include="Driver\Ring0.cs"/>
         <Compile Include="External\AdvApi.cs"/>
@@ -98,10 +88,6 @@
         <Compile Include="Library\Config.cs"/>
         <Compile Include="Library\ConfigData.cs"/>
         <Compile Include="Library\Conv.cs"/>
-        <Compile Include="Library\Gui\ButtonEx.cs"/>
-        <Compile Include="Library\Gui\GdiFont.cs"/>
-        <Compile Include="Library\Gui\ColorDlgEx.cs"/>
-        <Compile Include="Library\Gui\ProgressBarEx.cs"/>
         <Compile Include="Library\Hw.cs"/>
         <Compile Include="Library\Locale.cs"/>
         <Compile Include="Library\LocaleData.cs"/>
@@ -133,7 +119,9 @@
         <Compile Include="App\Wpf\FanPage.cs"/>
         <Compile Include="App\Wpf\ModePage.cs"/>
         <Compile Include="App\Wpf\CurvePage.cs"/>
+        <Compile Include="App\Wpf\SettingsPage.cs"/>
         <Compile Include="App\Wpf\OverlayWindow.cs"/>
+        <Compile Include="App\Wpf\OverlayPage.cs"/>
     </ItemGroup>
     <ItemGroup>
         <EmbeddedResource Include="OmenMon.resx">

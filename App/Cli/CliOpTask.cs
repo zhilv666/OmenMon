@@ -4,7 +4,6 @@
 
 using System;
 using System.Diagnostics;
-using OmenMon.AppGui;
 using OmenMon.Library;
 
 namespace OmenMon.AppCli {
@@ -52,12 +51,8 @@ namespace OmenMon.AppCli {
                         gui.Start();
                     }
 
-                    // Broadcast a message to the GUI that this is an automatic run
-                    Gui.Initialize();
-                    Gui.BroadcastMessage(
-                        Gui.MessageId,
-                        taskId == Config.TaskId.Gui ?
-                            Gui.MessageParam.Gui : Gui.MessageParam.Key);
+                    // A running instance (if any) manages its own window and
+                    // Omen-key handling; the legacy WinForms broadcast was removed.
                     break;
 
                 case Config.TaskId.Mux: // Apply the Advanced Optimus bug fix

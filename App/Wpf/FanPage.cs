@@ -33,7 +33,7 @@ namespace OmenMon.AppWpf {
             var togglePanel = new StackPanel();
             togglePanel.Children.Add(T.SectionTitle("手动控制"));
             var modeHint = T.Caption("", new Thickness(0, 2, 0, 0));
-            modeHint.SetBinding(TextBlock.TextProperty, new Binding("ModeLabel") { StringFormat = "当前：{0}　自动模式由 BIOS 控制风扇", Mode = BindingMode.OneWay });
+            modeHint.SetBinding(TextBlock.TextProperty, new Binding("FanModeLabel") { StringFormat = "当前：{0}　自动模式由 BIOS 控制风扇", Mode = BindingMode.OneWay });
             togglePanel.Children.Add(modeHint);
             toggleGrid.Children.Add(togglePanel);
 
@@ -41,9 +41,17 @@ namespace OmenMon.AppWpf {
                 VerticalAlignment = VerticalAlignment.Center, Cursor = Cursors.Hand,
                 Foreground = T.Br(T.FgPri), FontSize = 13
             };
-            modeChk.SetBinding(CheckBox.IsCheckedProperty, new Binding("IsManualMode") { Mode = BindingMode.TwoWay });
-            modeChk.Checked   += (s, e) => _vm.EnterManualMode();
-            modeChk.Unchecked += (s, e) => _vm.ApplyPreset("Auto");
+            // OneWay + Click (not TwoWay + Checked/Unchecked): the binding only
+            // reflects the live mode for display, while just a genuine user click
+            // toggles it. Checked/Unchecked also fire when the binding updates on
+            // page load, which used to re-enter manual mode and clobber the active
+            // preset — e.g. picking 最大 then opening this page dropped it to 手动
+            // and reseeded the sliders from the current fan %, freezing the read-out.
+            modeChk.SetBinding(CheckBox.IsCheckedProperty, new Binding("IsManualMode") { Mode = BindingMode.OneWay });
+            modeChk.Click += (s, e) => {
+                if(modeChk.IsChecked == true) _vm.EnterManualMode();
+                else _vm.ApplyPreset("Auto");
+            };
             Grid.SetColumn(modeChk, 1);
             toggleGrid.Children.Add(modeChk);
             toggleCard.Child = toggleGrid;

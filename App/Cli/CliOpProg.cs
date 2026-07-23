@@ -5,7 +5,6 @@
 using System;
 using System.Diagnostics;
 using System.Threading;
-using OmenMon.AppGui;
 using OmenMon.Hardware.Platform;
 using OmenMon.Library;
 

@@ -56,14 +56,15 @@ namespace OmenMon.AppWpf {
         public double CpuFanBar => _cpuFanPct / 100.0;
         public double GpuFanBar => _gpuFanPct / 100.0;
 
-        // Manual slider values (0-55 krpm range)
-        private double _cpuFanLevel = 20;
+        // Manual slider values as a percentage of max fan speed (0-100), matching
+        // the displayed fan-rate %. Converted to the 0-55 hardware level on apply.
+        private double _cpuFanLevel = 40;
         public double CpuFanLevel {
             get => _cpuFanLevel;
             set { Set(ref _cpuFanLevel, value); }
         }
 
-        private double _gpuFanLevel = 20;
+        private double _gpuFanLevel = 40;
         public double GpuFanLevel {
             get => _gpuFanLevel;
             set { Set(ref _gpuFanLevel, value); }
@@ -81,6 +82,11 @@ namespace OmenMon.AppWpf {
         // --- Fan mode label -----------------------------------------------
         private string _fanModeLabel = "默认";
         public string FanModeLabel { get => _fanModeLabel; set => Set(ref _fanModeLabel, value); }
+
+        // Single source of truth for the active fan mode, used by every page to
+        // highlight the current selection: Auto/Max/High/Mid/Low/Silent/Off/Manual/Curve
+        private string _activePreset = "Auto";
+        public string ActivePreset { get => _activePreset; set => Set(ref _activePreset, value); }
 
         // --- Manual / Auto mode -------------------------------------------
         // Default is auto: the BIOS controls the fans. Sliders and preset
@@ -164,14 +170,11 @@ namespace OmenMon.AppWpf {
                     if(pct0 > 0)    { CpuFanPct = pct0; NotifyBars(); }
                     if(pct1 > 0)    { GpuFanPct = pct1; NotifyBars(); }
 
-                    // In auto mode the sliders mirror the live fan level so the
-                    // user sees what the fans are actually doing. In manual mode
-                    // the sliders hold the user's chosen value and are not touched.
+                    // In auto mode the sliders mirror the live fan rate % so they
+                    // match the read-out; in manual mode they hold the user's value.
                     if(!IsManualMode) {
-                        int lvl0 = 0, lvl1 = 0;
-                        try { var lv = Platform.Fans.GetLevels(); lvl0 = lv[0]; lvl1 = lv[1]; } catch { }
-                        if(lvl0 > 0) CpuFanLevel = Math.Min(Math.Max(lvl0, 20), 55);
-                        if(lvl1 > 0) GpuFanLevel = Math.Min(Math.Max(lvl1, 20), 55);
+                        if(pct0 > 0) CpuFanLevel = pct0;
+                        if(pct1 > 0) GpuFanLevel = pct1;
                     }
 
                     UptimeText = uptStr;
@@ -201,54 +204,51 @@ namespace OmenMon.AppWpf {
 #endregion
 
 #region Fan Control Actions
+        // A fan preset is just a named fixed level (plus Auto and Off). Every
+        // fixed preset now goes through the SAME level-based path as the manual
+        // sliders — only the level differs — so one click applies it and all
+        // modes behave consistently. (Max used to use the special SetMaxFan BIOS
+        // call, which needed two clicks to actually engage on this hardware.)
         public void ApplyPreset(string preset) {
             try {
-                bool isMax = Platform.Fans.GetMax();
-                bool isOff = Platform.Fans.GetOff();
-
                 switch(preset) {
-                    case "Auto":
-                        FanModeLabel = "自动";
-                        IsManualMode = false;
-                        Platform.Fans.SetMax(false);
-                        Platform.Fans.SetOff(false);
-                        Platform.Fans.SetLevels(new byte[] {0xFF, 0xFF});
-                        Platform.Fans.SetMode(BiosData.FanMode.Default);
-                        break;
-                    case "Max":
-                        FanModeLabel = "最大";
-                        IsManualMode = true;
-                        if(isOff) Platform.Fans.SetOff(false);
-                        Platform.Fans.SetMax(true);
-                        break;
-                    case "High":
-                        FanModeLabel = "高速";
-                        ApplyLevel(45);
-                        break;
-                    case "Mid":
-                        FanModeLabel = "中速";
-                        ApplyLevel(37);
-                        break;
-                    case "Low":
-                        FanModeLabel = "低速";
-                        ApplyLevel(27);
-                        break;
-                    case "Silent":
-                        FanModeLabel = "安静";
-                        ApplyLevel(20);
-                        break;
-                    case "Off":
-                        FanModeLabel = "关闭";
-                        IsManualMode = true;
-                        if(isMax) Platform.Fans.SetMax(false);
-                        Platform.Fans.SetOff(true);
-                        break;
+                    case "Auto":   SetAuto();                              break;
+                    case "Max":    ApplyPresetLevel("Max",    "最大", 100); break;
+                    case "High":   ApplyPresetLevel("High",   "高速", 82);  break;
+                    case "Mid":    ApplyPresetLevel("Mid",    "中速", 67);  break;
+                    case "Low":    ApplyPresetLevel("Low",    "低速", 49);  break;
+                    case "Silent": ApplyPresetLevel("Silent", "安静", 36);  break;
                 }
             } catch { }
         }
 
-        private void ApplyLevel(byte level) {
+        // Auto: hand the fans back to the BIOS default curve.
+        private void SetAuto() {
+            StopCurveInternal();
+            ActivePreset = "Auto";
+            FanModeLabel = "自动";
+            IsManualMode = false;
+            Platform.Fans.SetMax(false);
+            Platform.Fans.SetOff(false);
+            Platform.Fans.SetLevels(new byte[] {0xFF, 0xFF});
+            Platform.Fans.SetMode(BiosData.FanMode.Default);
+        }
+
+        // A fixed preset expressed as a fan-speed percentage — same mechanism as
+        // manual control, so it engages on the first click and the sliders (also
+        // in %) mirror the chosen value.
+        private void ApplyPresetLevel(string key, string label, int pct) {
+            StopCurveInternal();
+            ActivePreset = key;
+            FanModeLabel = label;
             IsManualMode = true;
+            CpuFanLevel = pct;
+            GpuFanLevel = pct;
+            ApplyLevel(PctToLevel(pct));
+        }
+
+        // Applies one level to both fans through the manual/BIOS path.
+        private void ApplyLevel(byte level) {
             Platform.Fans.SetMax(false);
             Platform.Fans.SetOff(false);
             Platform.Fans.SetLevels(new byte[] {level, level});
@@ -256,16 +256,22 @@ namespace OmenMon.AppWpf {
             Platform.Fans.SetCountdown(Config.FanCountdownExtendInterval);
         }
 
+        // Stops a running curve program (if any) and clears the selection.
+        private void StopCurveInternal() {
+            if(_program != null && _program.IsEnabled)
+                _program.Terminate();
+            ActiveCurve = "";
+        }
+
         // Switches to manual mode. Seeds both sliders from the current
         // real fan rate so the starting point matches what the fans are
         // actually doing, then applies that level immediately.
         public void EnterManualMode() {
             IsManualMode = true;
-            // Seed sliders from current rate (mapped into the 20-55 range)
-            int seed0 = _cpuFanPct > 0 ? 20 + (_cpuFanPct * 35 / 100) : 20;
-            int seed1 = _gpuFanPct > 0 ? 20 + (_gpuFanPct * 35 / 100) : 20;
-            CpuFanLevel = Math.Min(Math.Max(seed0, 20), 55);
-            GpuFanLevel = Math.Min(Math.Max(seed1, 20), 55);
+            // Seed the sliders from the current fan rate % so manual mode starts
+            // exactly where the fans already are.
+            CpuFanLevel = _cpuFanPct > 0 ? _cpuFanPct : 40;
+            GpuFanLevel = _gpuFanPct > 0 ? _gpuFanPct : 40;
             ApplyManualLevels();
         }
 
@@ -276,13 +282,15 @@ namespace OmenMon.AppWpf {
                 if(_program != null && _program.IsEnabled)
                     _program.Terminate();
 
-                ApplyLevel((byte) Math.Round(CpuFanLevel));
-                // For GPU fan specifically, we override with its own slider
-                Platform.Fans.SetLevels(new byte[] {
-                    (byte) Math.Round(CpuFanLevel),
-                    (byte) Math.Round(GpuFanLevel)});
+                // Sliders are in %, convert each fan to its hardware level
+                byte cpuLvl = PctToLevel((int) Math.Round(CpuFanLevel));
+                byte gpuLvl = PctToLevel((int) Math.Round(GpuFanLevel));
+                Platform.Fans.SetMax(false);
+                Platform.Fans.SetOff(false);
+                Platform.Fans.SetLevels(new byte[] { cpuLvl, gpuLvl });
                 Platform.Fans.SetMode(Platform.Fans.GetMode());
                 Platform.Fans.SetCountdown(Config.FanCountdownExtendInterval);
+                ActivePreset = "Manual";
                 FanModeLabel = "手动";
             } catch { }
         }
@@ -317,6 +325,7 @@ namespace OmenMon.AppWpf {
                 _programTick = 0;
                 _program.Run(name);
 
+                ActivePreset = "Curve";
                 ActiveCurve  = name;
                 FanModeLabel = "曲线：" + name;
             } catch { }

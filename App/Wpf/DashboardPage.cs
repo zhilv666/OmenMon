@@ -58,11 +58,27 @@ namespace OmenMon.AppWpf {
         private Border MonCard(string icon, string label, string valueProp, string valueFmt,
                                string barProp, SWM.Color accent, Thickness margin, string sub = null) {
             var card = T.Card(margin);
+            // Accent-tinted edge gives each metric a clear identity and lifts the
+            // card off the (darker) background without an expensive drop shadow.
+            card.BorderBrush     = T.Tint(accent, 96);
+            card.BorderThickness = new Thickness(1.5);
 
             var sp = new StackPanel();
             var header = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 10) };
-            header.Children.Add(new TextBlock { Text = icon, FontSize = 15, Margin = new Thickness(0, 0, 8, 0) });
-            header.Children.Add(new TextBlock { Text = label, FontSize = 13, Foreground = T.Br(T.FgSec), VerticalAlignment = VerticalAlignment.Center });
+            var iconChip = new Border {
+                Width = 34, Height = 34,
+                CornerRadius = new CornerRadius(9),
+                Background = T.Tint(accent, 38),
+                Margin = new Thickness(0, 0, 10, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = new TextBlock {
+                    Text = icon, FontSize = 16,
+                    HorizontalAlignment = HorizontalAlignment.Center,
+                    VerticalAlignment = VerticalAlignment.Center
+                }
+            };
+            header.Children.Add(iconChip);
+            header.Children.Add(new TextBlock { Text = label, FontSize = 13, FontWeight = FontWeights.Medium, Foreground = T.Br(T.FgSec), VerticalAlignment = VerticalAlignment.Center });
             sp.Children.Add(header);
 
             var val = new TextBlock { FontSize = 42, FontWeight = FontWeights.Bold, Foreground = new SolidColorBrush(accent) };

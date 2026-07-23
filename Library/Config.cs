@@ -280,7 +280,7 @@ namespace OmenMon.Library {
                         ColorPreset = ColorPresetXml;
 
                     // Populate the RTF header with colors at run-time
-                    SysInfoRtfHeader = SysInfoRtfPreHeader + 
+                    SysInfoRtfHeader = SysInfoRtfPreHeader +
                         "{\\colortbl;"
                         + Conv.GetColorStringRtf(SystemColors.GrayText.ToArgb())  // System Gray
                         + Conv.GetColorStringRtf(0)                               // Black

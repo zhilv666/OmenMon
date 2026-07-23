@@ -215,6 +215,11 @@ namespace OmenMon.AppWpf {
             rowStyle.Setters.Add(new Setter(FrameworkElement.MinHeightProperty, 34.0));
             grid.RowStyle = rowStyle;
 
+            // Forward the mouse wheel to the page's ScrollViewer — a DataGrid's
+            // internal ScrollViewer otherwise swallows wheel events even when it
+            // has nothing to scroll, which traps scrolling over the table.
+            grid.PreviewMouseWheel += ForwardWheelToParent;
+
             // Editing textbox (default is white-on-white in dark mode)
             var editStyle = new Style(typeof(TextBox));
             editStyle.Setters.Add(new Setter(TextBox.BackgroundProperty, T.Br(T.BgCard2)));
@@ -236,6 +241,19 @@ namespace OmenMon.AppWpf {
                 Width = new DataGridLength(1, DataGridLengthUnitType.Star),
                 EditingElementStyle = editStyle
             };
+        }
+
+        // Re-raise a swallowed wheel event on the parent so the outer page
+        // ScrollViewer scrolls when the pointer is over the table.
+        private static void ForwardWheelToParent(object sender, MouseWheelEventArgs e) {
+            if(e.Handled) return;
+            e.Handled = true;
+            var args = new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta) {
+                RoutedEvent = UIElement.MouseWheelEvent,
+                Source = sender
+            };
+            if(sender is FrameworkElement fe && fe.Parent is UIElement parent)
+                parent.RaiseEvent(args);
         }
 
         // ── Import / Export ──────────────────────────────────────────────

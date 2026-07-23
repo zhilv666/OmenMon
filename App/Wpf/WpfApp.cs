@@ -113,7 +113,7 @@ namespace OmenMon.AppWpf {
 
             // Fan presets in tray
             var fanMenu = new ToolStripMenuItem("风扇控制");
-            foreach(var p in new[] { ("自动","Auto"),("最大","Max"),("中速","Mid"),("安静","Silent"),("关闭","Off") }) {
+            foreach(var p in new[] { ("自动","Auto"),("最大","Max"),("中速","Mid"),("安静","Silent") }) {
                 var (label, key) = p;
                 var item = new ToolStripMenuItem(label);
                 var capturedKey = key;
@@ -157,6 +157,16 @@ namespace OmenMon.AppWpf {
                 _overlay.Hide();
             else
                 _overlay.Show();
+        }
+
+        // Switches the overlay template. The window is rebuilt from scratch so
+        // the new layout takes effect; if it was on screen it stays on screen.
+        public void SetOverlayStyle(OverlayWindow.OverlayStyle style) {
+            OverlayWindow.CurrentStyle = style;
+            bool wasVisible = _overlay != null && _overlay.IsVisible;
+            if(_overlay != null) { _overlay.Close(); _overlay = null; }
+            _overlay = new OverlayWindow(ViewModel);
+            if(wasVisible) _overlay.Show();
         }
 #endregion
 

@@ -12,6 +12,9 @@ namespace OmenMon.AppWpf {
     public class ModePage : Page {
 
         private HardwareViewModel _vm;
+        private readonly System.Collections.Generic.List<System.Action> _cardPainters
+            = new System.Collections.Generic.List<System.Action>();
+        private System.ComponentModel.PropertyChangedEventHandler _onVmChanged;
 
         public ModePage(HardwareViewModel vm) {
             _vm = vm;
@@ -31,7 +34,6 @@ namespace OmenMon.AppWpf {
                 ("⚡", "高速",    "较高转速\n性能与噪音平衡",       "High",   T.Amber),
                 ("🌿", "中速",    "适合日常写代码\n开浏览器",       "Mid",    T.Green),
                 ("🌙", "安静",    "最低转速\n极致安静体验",         "Silent", T.Violet),
-                ("⊘",  "关闭风扇", "完全停止风扇\n谨慎使用",        "Off",    T.Red),
             };
 
             var grid = new UniformGrid { Columns = 3 };
@@ -45,12 +47,24 @@ namespace OmenMon.AppWpf {
             }
             root.Children.Add(grid);
 
+            // Reflect the active preset now, and stay in sync if it changes elsewhere
+            RefreshActive();
+            _onVmChanged = (s, e) => {
+                if(e.PropertyName == nameof(HardwareViewModel.ActivePreset))
+                    RefreshActive();
+            };
+            _vm.PropertyChanged += _onVmChanged;
+            Unloaded += (s, e) => { if(_onVmChanged != null) _vm.PropertyChanged -= _onVmChanged; };
+
             scroll.Content = root;
             Content = scroll;
         }
 
+        private void RefreshActive() {
+            foreach(var paint in _cardPainters) paint();
+        }
+
         private Border ModeCard(string icon, string title, string desc, string preset, SWM.Color accent) {
-            bool isDanger = preset == "Off";
             var card = new Border {
                 Background      = T.Br(T.BgCard),
                 CornerRadius    = new CornerRadius(T.Radius),
@@ -59,9 +73,6 @@ namespace OmenMon.AppWpf {
                 Padding         = new Thickness(16, 22, 16, 22),
                 Cursor          = Cursors.Hand
             };
-            card.MouseEnter += (s, e) => { card.BorderBrush = new SolidColorBrush(accent); card.Background = T.Br(T.BgHover); };
-            card.MouseLeave += (s, e) => { card.BorderBrush = T.Br(T.BorderCol); card.Background = T.Br(T.BgCard); };
-            card.MouseLeftButtonUp += (s, e) => _vm.ApplyPreset(preset);
 
             var sp = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center };
             sp.Children.Add(new TextBlock {
@@ -79,21 +90,38 @@ namespace OmenMon.AppWpf {
                 TextAlignment = TextAlignment.Center, TextWrapping = TextWrapping.Wrap
             });
 
-            // Highlight when this preset is the active fan mode label
             var applyPill = new Border {
-                Background      = isDanger ? T.Tint(T.Red, 55) : T.Tint(accent, 55),
-                CornerRadius    = new CornerRadius(6),
-                Padding         = new Thickness(16, 6, 16, 6),
-                Margin          = new Thickness(0, 14, 0, 0),
+                CornerRadius        = new CornerRadius(6),
+                Padding             = new Thickness(16, 6, 16, 6),
+                Margin              = new Thickness(0, 14, 0, 0),
                 HorizontalAlignment = HorizontalAlignment.Center
             };
-            applyPill.Child = new TextBlock {
-                Text = "应用", FontSize = 11.5, FontWeight = FontWeights.Medium,
+            var pillText = new TextBlock {
+                FontSize = 11.5, FontWeight = FontWeights.Medium,
                 Foreground = new SolidColorBrush(accent), HorizontalAlignment = HorizontalAlignment.Center
             };
+            applyPill.Child = pillText;
             sp.Children.Add(applyPill);
 
             card.Child = sp;
+
+            // Highlight this card while its preset is the active fan mode.
+            void Paint() {
+                bool active = _vm.ActivePreset == preset;
+                card.BorderBrush     = active ? new SolidColorBrush(accent) : T.Br(T.BorderCol);
+                card.BorderThickness = new Thickness(active ? 2 : 1);
+                card.Background      = active ? T.Tint(accent, 30) : T.Br(T.BgCard);
+                applyPill.Background = active ? T.Tint(accent, 95) : T.Tint(accent, 55);
+                pillText.Text        = active ? "● 使用中" : "应用";
+            }
+            card.MouseEnter += (s, e) => {
+                if(_vm.ActivePreset != preset) { card.BorderBrush = new SolidColorBrush(accent); card.Background = T.Br(T.BgHover); }
+            };
+            card.MouseLeave += (s, e) => Paint();
+            card.MouseLeftButtonUp += (s, e) => { _vm.ApplyPreset(preset); RefreshActive(); };
+
+            _cardPainters.Add(Paint);
+            Paint();
             return card;
         }
     }

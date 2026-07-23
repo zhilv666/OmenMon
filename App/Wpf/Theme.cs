@@ -29,33 +29,41 @@ namespace OmenMon.AppWpf {
 
         // System → Light → Dark → System …
         public static void CycleMode() {
+            _systemDark = null; // re-read the Windows setting on next resolve
             Mode = Mode == ThemeMode.System ? ThemeMode.Light :
                    Mode == ThemeMode.Light  ? ThemeMode.Dark  : ThemeMode.System;
         }
 
-        // Windows personalization: AppsUseLightTheme == 0 → dark apps
+        // Windows personalization: AppsUseLightTheme == 0 → dark apps.
+        // Cached: IsDark is read hundreds of times per UI rebuild, and hitting
+        // the registry each time made theme switching noticeably laggy. The
+        // cache is invalidated in CycleMode() so a mode change still re-reads.
+        private static bool? _systemDark;
         private static bool SystemIsDark() {
+            if(_systemDark.HasValue) return _systemDark.Value;
+            bool result = true; // default to dark if unknown
             try {
                 using(var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
                     @"SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize")) {
                     var v = key?.GetValue("AppsUseLightTheme");
-                    if(v is int i) return i == 0;
+                    if(v is int i) result = (i == 0);
                 }
             } catch { }
-            return true; // default to dark if unknown
+            _systemDark = result;
+            return result;
         }
 #endregion
 
 #region Palette (mode-aware properties — call sites never change)
         public static SWM.Color BgWindow => IsDark ? Hex("#0D0D14") : Hex("#EEF0F6");
-        public static SWM.Color BgMain   => IsDark ? Hex("#12121C") : Hex("#F5F6FA");
+        public static SWM.Color BgMain   => IsDark ? Hex("#0C0C13") : Hex("#F5F6FA");
         public static SWM.Color BgSide   => IsDark ? Hex("#16161F") : Hex("#E7E9F2");
-        public static SWM.Color BgCard   => IsDark ? Hex("#1B1B29") : Hex("#FFFFFF");
-        public static SWM.Color BgCard2  => IsDark ? Hex("#252538") : Hex("#E4E6F0");
-        public static SWM.Color BgHover  => IsDark ? Hex("#24243A") : Hex("#DFE3F0");
-        public static SWM.Color BgActive => IsDark ? Hex("#1E2B4D") : Hex("#D5E3FF");
+        public static SWM.Color BgCard   => IsDark ? Hex("#24273D") : Hex("#FFFFFF");
+        public static SWM.Color BgCard2  => IsDark ? Hex("#343854") : Hex("#E4E6F0");
+        public static SWM.Color BgHover  => IsDark ? Hex("#2E3050") : Hex("#DFE3F0");
+        public static SWM.Color BgActive => IsDark ? Hex("#263A66") : Hex("#D5E3FF");
 
-        public static SWM.Color BorderCol => IsDark ? Hex("#2A2A42") : Hex("#D5D8E6");
+        public static SWM.Color BorderCol => IsDark ? Hex("#454974") : Hex("#C6CADD");
 
         public static SWM.Color FgPri  => IsDark ? Hex("#E6E6F2") : Hex("#1B1B2E");
         public static SWM.Color FgSec  => IsDark ? Hex("#9A9ABE") : Hex("#4E5375");
@@ -212,7 +220,7 @@ namespace OmenMon.AppWpf {
                 .Replace("STROKE", strokeHex);
 
             var slider = new Slider {
-                Minimum = 20, Maximum = 55, SmallChange = 1, LargeChange = 5,
+                Minimum = 0, Maximum = 100, SmallChange = 1, LargeChange = 5,
                 IsMoveToPointEnabled = true, Height = 22
             };
             slider.Template = (ControlTemplate) System.Windows.Markup.XamlReader.Parse(xaml);
