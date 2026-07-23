@@ -51,6 +51,23 @@ namespace OmenMon.AppWpf {
             showCard.Child = showGrid;
             root.Children.Add(showCard);
 
+            // ── Card: appearance (opacity + size) ────────────────────────
+            var apCard = T.Card(new Thickness(0, 0, 0, T.CardGap));
+            var apStack = new StackPanel();
+            apStack.Children.Add(T.SectionTitle("外观调节", new Thickness(0, 0, 0, 4)));
+            apStack.Children.Add(T.Caption("拖动滑块实时调整悬浮监控的透明度与大小比例",
+                new Thickness(0, 0, 0, 10)));
+
+            apStack.Children.Add(AppearanceSlider("透明度", 25, 100,
+                OverlayWindow.CurrentOpacity * 100,
+                v => WpfApp.Instance.SetOverlayOpacity(v / 100.0)));
+            apStack.Children.Add(AppearanceSlider("大小比例", 60, 160,
+                OverlayWindow.CurrentScale * 100,
+                v => WpfApp.Instance.SetOverlayScale(v / 100.0)));
+
+            apCard.Child = apStack;
+            root.Children.Add(apCard);
+
             // ── Card: template picker ────────────────────────────────────
             var tplCard = T.Card();
             var tplStack = new StackPanel();
@@ -136,6 +153,40 @@ namespace OmenMon.AppWpf {
         private void Select(OverlayWindow.OverlayStyle style) {
             WpfApp.Instance.SetOverlayStyle(style);
             Paint();
+        }
+
+        // A labelled slider row: title + live percentage on the right, slider below.
+        private FrameworkElement AppearanceSlider(string title, double min, double max,
+                                                  double current, Action<double> apply) {
+            var wrap = new StackPanel { Margin = new Thickness(0, 8, 0, 8) };
+
+            var head = new Grid();
+            head.ColumnDefinitions.Add(new ColumnDefinition());
+            head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            head.Children.Add(new TextBlock {
+                Text = title, FontSize = 13.5, FontWeight = FontWeights.Medium, Foreground = T.Br(T.FgPri)
+            });
+            var valLbl = new TextBlock {
+                FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = T.Br(T.Blue),
+                HorizontalAlignment = HorizontalAlignment.Right
+            };
+            valLbl.Text = string.Format("{0:0}%", current);
+            Grid.SetColumn(valLbl, 1);
+            head.Children.Add(valLbl);
+            wrap.Children.Add(head);
+
+            var slider = T.FanSlider(T.Blue);
+            slider.Minimum = min;
+            slider.Maximum = max;
+            slider.Value   = Math.Min(Math.Max(current, min), max);
+            slider.Margin  = new Thickness(0, 10, 0, 0);
+            slider.ValueChanged += (s, e) => {
+                valLbl.Text = string.Format("{0:0}%", slider.Value);
+                apply(slider.Value);
+            };
+            wrap.Children.Add(slider);
+
+            return wrap;
         }
 
         // Highlights the active template and shows its check mark.

@@ -168,6 +168,18 @@ namespace OmenMon.AppWpf {
             _overlay = new OverlayWindow(ViewModel);
             if(wasVisible) _overlay.Show();
         }
+
+        // Live overlay appearance — applied to the current window (if any) and
+        // stored so the next-created overlay picks up the same values.
+        public void SetOverlayOpacity(double opacity) {
+            OverlayWindow.CurrentOpacity = OverlayWindow.ClampOpacity(opacity);
+            _overlay?.ApplyOpacity(opacity);
+        }
+
+        public void SetOverlayScale(double scale) {
+            OverlayWindow.CurrentScale = OverlayWindow.ClampScale(scale);
+            _overlay?.ApplyScale(scale);
+        }
 #endregion
 
     }

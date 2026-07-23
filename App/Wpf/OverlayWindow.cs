@@ -30,7 +30,13 @@ namespace OmenMon.AppWpf {
         // "悬浮监控" page; WpfApp recreates the window to apply it.
         public static OverlayStyle CurrentStyle = OverlayStyle.Card;
 
+        // Live-adjustable appearance, shared across overlay windows and set
+        // from the sidebar. Opacity 0.25–1.0, scale 0.6–1.6 (1.0 = 100%).
+        public static double CurrentOpacity = 1.0;
+        public static double CurrentScale   = 1.0;
+
         private readonly OverlayStyle _style;
+        private ScaleTransform _scale;
 
         // ── palette ────────────────────────────────────────────────────────
         static SolidColorBrush B(string hex) => new SolidColorBrush((SWM.Color) SWM.ColorConverter.ConvertFromString(hex));
@@ -64,8 +70,8 @@ namespace OmenMon.AppWpf {
             DataContext = vm;
 
             Title                 = "OmenMon Overlay";
-            Width                 = _style == OverlayStyle.Compact ? 440 : 384;
-            SizeToContent         = SizeToContent.Height;
+            double baseWidth      = _style == OverlayStyle.Compact ? 440 : 384;
+            SizeToContent         = SizeToContent.WidthAndHeight;
             WindowStyle           = WindowStyle.None;
             AllowsTransparency    = true;
             Background            = Brushes.Transparent;
@@ -73,8 +79,15 @@ namespace OmenMon.AppWpf {
             ResizeMode            = ResizeMode.NoResize;
             ShowInTaskbar         = false;
             WindowStartupLocation = WindowStartupLocation.Manual;
+            Opacity               = ClampOpacity(CurrentOpacity);
 
-            Content = _style == OverlayStyle.Compact ? BuildCompactContent() : BuildContent();
+            // Fixed-width content, scaled as a whole via a LayoutTransform so the
+            // window (SizeToContent) grows/shrinks with the chosen size ratio.
+            var content = (FrameworkElement)(_style == OverlayStyle.Compact ? BuildCompactContent() : BuildContent());
+            content.Width = baseWidth;
+            _scale = new ScaleTransform(ClampScale(CurrentScale), ClampScale(CurrentScale));
+            content.LayoutTransform = _scale;
+            Content = content;
 
             _vm.PropertyChanged += OnVmChanged;
             Closed += (s, e) => _vm.PropertyChanged -= OnVmChanged;
@@ -89,6 +102,22 @@ namespace OmenMon.AppWpf {
         // Redraw the ring arcs whenever the polled data changes.
         private void OnVmChanged(object s, PropertyChangedEventArgs e) => Dispatcher.Invoke(RunUpdaters);
         private void RunUpdaters() { foreach(var u in _updaters) u(); }
+
+        // ── Live appearance controls (driven from the sidebar) ─────────────
+        public static double ClampOpacity(double v) => v < 0.25 ? 0.25 : v > 1.0 ? 1.0 : v;
+        public static double ClampScale(double v)   => v < 0.6  ? 0.6  : v > 1.6 ? 1.6 : v;
+
+        // Fades the whole panel; 0.25–1.0 keeps it visible and clickable.
+        public void ApplyOpacity(double o) {
+            CurrentOpacity = ClampOpacity(o);
+            Opacity = CurrentOpacity;
+        }
+
+        // Scales the panel uniformly; SizeToContent resizes the window to match.
+        public void ApplyScale(double s) {
+            CurrentScale = ClampScale(s);
+            if(_scale != null) { _scale.ScaleX = CurrentScale; _scale.ScaleY = CurrentScale; }
+        }
 
         private UIElement BuildContent() {
             var shell = new Border {
