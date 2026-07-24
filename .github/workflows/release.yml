@@ -3,64 +3,92 @@
 # //  \\  Copyright © 2023 Piotr Szczepański * License: GPL3
 #     //  https://omenmon.github.io/
 #
-# OmenMon Release Workflow
-# Triggers a build and uploads artifacts as release assets
+# OmenMon Release Workflow (Simplified)
+# Creates a GitHub release when a tag is pushed
 
 name: "OmenMon Release"
 run-name: "OmenMon Release by ${{ github.actor }}"
 
 on:
-  release:
-    types: [published]
+  push:
+    tags:
+      - 'v*.*.*'
 
 permissions:
   contents: write
 
 jobs:
-  call-build:
-    name: "Call Build"
-    secrets: inherit
-    uses: ./.github/workflows/build.yml
-    with:
-      version_number: ${{ github.event.release.tag_name }}
-      version_word: ${{ github.event.release.prerelease && 'Preview' || 'Release' }}
-
-  release:
-    name: "Release OmenMon"
-    needs: call-build
-    runs-on: ubuntu-latest
+  build:
+    name: "Build OmenMon"
+    runs-on: windows-2022
 
     steps:
-    - id: download
-      name: "Download Artifacts"
-      uses: actions/download-artifact@v3
+    - name: "Checkout OmenMon"
+      uses: actions/checkout@v4
       with:
-        name: ${{ github.event.repository.name }}
+        fetch-depth: 1
 
-    - name: 'List Artifacts'
-      run: ls -1R ${{ steps.download.outputs.download-path }}
-
-    - name: "Create Archive"
-      run: zip -9 -r OmenMon.zip ./*
-
-    - name: "Create Archive Comment"
+    - name: "Extract Version"
+      id: version
+      shell: bash
       run: |
-        cat >OmenMon.zip.txt <<EOF
-        @ (zip file comment below this line)
-          //\\\\\\\\   OmenMon Version ${{ github.event.release.tag_name }}-${{ github.event.release.prerelease && 'Preview' || 'Release' }}
-         //  \\\\\\\\  Build ${{ vars.BUILD_NUMBER }} * $(date -u +"%Y-%m-%d %H:%M") UTC
-             //  https://omenmon.github.io/
-        EOF
+        VERSION=${GITHUB_REF#refs/tags/v}
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "tag=$GITHUB_REF_NAME" >> $GITHUB_OUTPUT
+        echo "Building version: $VERSION"
 
-    - name: "Add Comment to Archive"
-      run: zipnote -b . -w OmenMon.zip < OmenMon.zip.txt
-
-    - name: "Upload OmenMon Assets"
-      uses: actions/upload-release-asset@v1
+    - name: "Set up MSBuild"
+      uses: microsoft/setup-msbuild@v2
       with:
-        upload_url: ${{ github.event.release.upload_url }}
-        asset_path: ./OmenMon.zip
-        asset_name: OmenMon-${{ github.event.release.tag_name }}-${{ github.event.release.prerelease && 'Preview' || 'Release' }}.zip
-        asset_content_type: application/zip
+        msbuild-architecture: x64
+
+    - name: "Restore NuGet Packages"
+      working-directory: ${{ github.workspace }}
+      run: nuget restore OmenMon.sln
+
+    - name: "Build OmenMon"
+      working-directory: ${{ github.workspace }}
+      run: |
+        msbuild OmenMon.sln `
+          -p:Configuration=Release `
+          -p:Platform="Any CPU" `
+          -p:OutputPath=Bin\ `
+          -m -noLogo
+
+    - name: "Create Release"
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.tag }}
+        name: "OmenMon WPF 风扇控制版 ${{ steps.version.outputs.tag }}"
+        body: |
+          基于上游 OmenMon v0.61.1，新增 WPF 图形界面与悬浮监控功能。
+
+          ## ✨ 新特性
+
+          - **WPF 图形界面** — 替代命令行操作，提供直观的温度/风扇监控与控制
+          - **基于温度的风扇曲线控制** — 自定义风扇响应策略
+          - **悬浮监控窗口** — 实时显示 CPU/GPU 温度、风扇转速与负载
+            - 两种样式：Card（圆环仪表）/ Compact（横向进度条）
+            - 可调节背景透明度（0.25–1.0）
+            - 可调节缩放比例（0.6–1.6）
+            - 支持全局拖动与固定
+          - **侧边栏模板选择** — 在设置页一键切换显示样式
+
+          ## 📦 构建要求
+
+          - .NET Framework 4.8
+          - Visual Studio 2022 / MSBuild
+
+          ## 🙏 致谢
+
+          本项目基于 [shemanaev/OmenMon](https://github.com/shemanaev/OmenMon) (GPL-3.0)，感谢原作者的出色工作。
+
+          ## 📄 许可证
+
+          本项目遵循 GPL-3.0 许可证，所有修改均已开源。
+        files: |
+          Bin/OmenMon.exe
+        draft: false
+        prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
