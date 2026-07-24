@@ -37,6 +37,7 @@ namespace OmenMon.AppWpf {
 
         private readonly OverlayStyle _style;
         private ScaleTransform _scale;
+        private Border _shellBorder;   // The outer glass background; opacity slider targets this only.
 
         // ── palette ────────────────────────────────────────────────────────
         static SolidColorBrush B(string hex) => new SolidColorBrush((SWM.Color) SWM.ColorConverter.ConvertFromString(hex));
@@ -79,7 +80,6 @@ namespace OmenMon.AppWpf {
             ResizeMode            = ResizeMode.NoResize;
             ShowInTaskbar         = false;
             WindowStartupLocation = WindowStartupLocation.Manual;
-            Opacity               = ClampOpacity(CurrentOpacity);
 
             // Fixed-width content, scaled as a whole via a LayoutTransform so the
             // window (SizeToContent) grows/shrinks with the chosen size ratio.
@@ -107,10 +107,10 @@ namespace OmenMon.AppWpf {
         public static double ClampOpacity(double v) => v < 0.25 ? 0.25 : v > 1.0 ? 1.0 : v;
         public static double ClampScale(double v)   => v < 0.6  ? 0.6  : v > 1.6 ? 1.6 : v;
 
-        // Fades the whole panel; 0.25–1.0 keeps it visible and clickable.
+        // Fades only the background shell; content (text/rings/bars) stays opaque.
         public void ApplyOpacity(double o) {
             CurrentOpacity = ClampOpacity(o);
-            Opacity = CurrentOpacity;
+            if(_shellBorder != null) _shellBorder.Opacity = CurrentOpacity;
         }
 
         // Scales the panel uniformly; SizeToContent resizes the window to match.
@@ -120,11 +120,12 @@ namespace OmenMon.AppWpf {
         }
 
         private UIElement BuildContent() {
-            var shell = new Border {
+            _shellBorder = new Border {
                 Background      = B(Glass),
                 CornerRadius    = new CornerRadius(16),
                 BorderBrush     = B(Stroke),
-                BorderThickness = new Thickness(1)
+                BorderThickness = new Thickness(1),
+                Opacity         = ClampOpacity(CurrentOpacity)
             };
 
             var root = new StackPanel();
@@ -133,18 +134,20 @@ namespace OmenMon.AppWpf {
             root.Children.Add(BuildComponent("GPU", "GpuTemp", () => _vm.GpuTempBar, "GpuFanBar", "GpuFanRpm", "GpuFanPct", Green));
             root.Children.Add(BuildFooter());
 
-            shell.Child = root;
-            return shell;
+            _shellBorder.Child = root;
+            return _shellBorder;
         }
 
         // ── Compact template (image #1): flat horizontal info bars ─────────
         private UIElement BuildCompactContent() {
-            var shell = new Border {
+            _shellBorder = new Border {
                 Background      = B(Glass),
                 CornerRadius    = new CornerRadius(18),
                 BorderBrush     = B(Stroke),
-                BorderThickness = new Thickness(1)
+                BorderThickness = new Thickness(1),
+                Opacity         = ClampOpacity(CurrentOpacity)
             };
+            _shellBorder.MouseLeftButtonDown += (s, e) => DragMove();
 
             var root = new StackPanel();
             root.Children.Add(BuildCompactHeader());
@@ -152,8 +155,8 @@ namespace OmenMon.AppWpf {
             root.Children.Add(BuildCompactRow("GPU", "GpuTemp", "GpuTempBar", "GpuFanRpm", "GpuFanPct", Green));
             root.Children.Add(BuildCompactFooter());
 
-            shell.Child = root;
-            return shell;
+            _shellBorder.Child = root;
+            return _shellBorder;
         }
 
         // Compact header: logo + title on the left, pin + close on the right.
