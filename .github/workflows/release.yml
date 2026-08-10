@@ -26,16 +26,56 @@ jobs:
     - name: "Checkout OmenMon"
       uses: actions/checkout@v4
       with:
-        fetch-depth: 1
+        # Full history and tags: the changelog is built by diffing against
+        # the previous tag, which a shallow clone cannot see
+        fetch-depth: 0
 
     - name: "Extract Version"
       id: version
       shell: bash
       run: |
         VERSION=${GITHUB_REF#refs/tags/v}
+
+        # The project errors out unless AssemblyVersion is exactly x.y.z.w, so
+        # keep only the leading numeric part (a tag may carry a suffix such as
+        # -beta) and pad it out. Getting this wrong is how every build so far
+        # ended up stamped 0.0.0 instead of failing loudly.
+        ASSEMBLY=$(printf '%s' "$VERSION" | grep -oE '^[0-9]+(\.[0-9]+)*' || true)
+        [ -n "$ASSEMBLY" ] || ASSEMBLY="0"
+        while [ "$(printf '%s' "$ASSEMBLY" | tr -cd '.' | wc -c)" -lt 3 ]; do
+          ASSEMBLY="$ASSEMBLY.0"
+        done
+
         echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "assembly=$ASSEMBLY" >> $GITHUB_OUTPUT
         echo "tag=$GITHUB_REF_NAME" >> $GITHUB_OUTPUT
-        echo "Building version: $VERSION"
+        echo "Building version: $VERSION (assembly $ASSEMBLY)"
+
+    - name: "Build Changelog"
+      id: changelog
+      shell: bash
+      run: |
+        # Nearest tag reachable from the commit before this one
+        PREV=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+
+        if [ -n "$PREV" ]; then
+          RANGE="$PREV..$GITHUB_REF_NAME"
+          echo "Changelog range: $RANGE"
+        else
+          RANGE="$GITHUB_REF_NAME"
+          echo "No earlier tag found, listing the whole history"
+        fi
+
+        {
+          echo 'body<<CHANGELOG_EOF'
+          git log --no-merges --pretty=format:'- %s' "$RANGE"
+          echo ""
+          if [ -n "$PREV" ]; then
+            echo ""
+            echo "**完整差异**: https://github.com/$GITHUB_REPOSITORY/compare/$PREV...$GITHUB_REF_NAME"
+          fi
+          echo 'CHANGELOG_EOF'
+        } >> "$GITHUB_OUTPUT"
 
     - name: "Set up MSBuild"
       uses: microsoft/setup-msbuild@v2
@@ -53,6 +93,8 @@ jobs:
           -p:Configuration=Release `
           -p:Platform="Any CPU" `
           -p:OutputPath=Bin\ `
+          -p:AssemblyVersion=${{ steps.version.outputs.assembly }} `
+          -p:AssemblyVersionWord=Release `
           -m -noLogo
 
     - name: "Create Release"
@@ -61,31 +103,32 @@ jobs:
         tag_name: ${{ steps.version.outputs.tag }}
         name: "OmenMon WPF 风扇控制版 ${{ steps.version.outputs.tag }}"
         body: |
-          基于上游 OmenMon v0.61.1，新增 WPF 图形界面与悬浮监控功能。
+          ## 本次更新
 
-          ## ✨ 新特性
+          ${{ steps.changelog.outputs.body }}
 
-          - **WPF 图形界面** — 替代命令行操作，提供直观的温度/风扇监控与控制
-          - **基于温度的风扇曲线控制** — 自定义风扇响应策略
-          - **悬浮监控窗口** — 实时显示 CPU/GPU 温度、风扇转速与负载
-            - 两种样式：Card（圆环仪表）/ Compact（横向进度条）
-            - 可调节背景透明度（0.25–1.0）
-            - 可调节缩放比例（0.6–1.6）
-            - 支持全局拖动与固定
-          - **侧边栏模板选择** — 在设置页一键切换显示样式
+          ---
 
-          ## 📦 构建要求
+          ## 关于本项目
+
+          OmenMon 的修改版（fork），面向 HP Victus / Omen 笔记本，在上游的 EC / BIOS 硬件访问能力之上新增了一套 WPF 图形界面：
+
+          - **控制面板** — 监控面板 / 风扇控制 / 性能模式 / 曲线设置 / 悬浮监控 / 设置
+          - **温度风扇曲线** — 可视化编辑「温度 → 转速」表，按温度自动调速
+          - **悬浮监控** — 桌面常驻小面板，两种样式，透明度与大小可调，设置自动保存
+
+          ## 运行要求
 
           - .NET Framework 4.8
-          - Visual Studio 2022 / MSBuild
+          - **必须以管理员身份运行**（需要访问 EC / BIOS）
 
           ## 🙏 致谢
 
-          本项目基于 [shemanaev/OmenMon](https://github.com/shemanaev/OmenMon) (GPL-3.0)，感谢原作者的出色工作。
+          本项目基于 **[OmenMon](https://github.com/OmenMon/OmenMon)**，由 [Piotr Szczepański](https://piotr.szczepanski.name/) 开发，全部底层硬件访问能力均来自于此。
 
           ## 📄 许可证
 
-          本项目遵循 GPL-3.0 许可证，所有修改均已开源。
+          GPL-3.0，与上游保持一致，所有修改均已开源。
         files: |
           Bin/OmenMon.exe
         draft: false
