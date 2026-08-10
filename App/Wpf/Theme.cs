@@ -74,6 +74,18 @@ namespace OmenMon.AppWpf {
         public static SWM.Color Amber  => IsDark ? Hex("#FFB84E") : Hex("#C97E14");
         public static SWM.Color Red    => IsDark ? Hex("#FF5C5C") : Hex("#D93A3A");
         public static SWM.Color Violet => IsDark ? Hex("#A67EFF") : Hex("#7A4FE0");
+
+        // Resolves an accent by name, so data that lives outside the view layer
+        // (such as the fan preset table) can pick one without referencing colors
+        public static SWM.Color Accent(string name) {
+            switch(name) {
+                case "Green":  return Green;
+                case "Amber":  return Amber;
+                case "Red":    return Red;
+                case "Violet": return Violet;
+                default:       return Blue;
+            }
+        }
 #endregion
 
 #region Spacing / Radius

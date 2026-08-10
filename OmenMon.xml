@@ -189,6 +189,29 @@
         <!-- Whether the main window stays on top of all other windows -->
         <GuiStayOnTop>false</GuiStayOnTop>
 
+        <!-- Fan curve that was running when the application last exited, and
+             which is picked up again on the next start (empty for none) -->
+        <GuiFanCurveActive></GuiFanCurveActive>
+
+        <!-- Floating overlay monitor -->
+
+        <!-- Template: Card (ring gauges) or Compact (info bars) -->
+        <GuiOverlayStyle>Card</GuiOverlayStyle>
+
+        <!-- Backdrop opacity [%], 25 to 100 -->
+        <GuiOverlayOpacity>100</GuiOverlayOpacity>
+
+        <!-- Overall size ratio [%], 60 to 160 -->
+        <GuiOverlayScale>100</GuiOverlayScale>
+
+        <!-- Last position [px]; -2147483648 places it in the bottom-right corner
+             (both values are updated automatically whenever it is dragged) -->
+        <GuiOverlayLeft>-2147483648</GuiOverlayLeft>
+        <GuiOverlayTop>-2147483648</GuiOverlayTop>
+
+        <!-- Whether to bring the overlay back up on the next start -->
+        <GuiOverlayShow>false</GuiOverlayShow>
+
         <!-- Override System Information font size (leave 0 for the default) -->
         <GuiSysInfoFontSize>0</GuiSysInfoFontSize>
 
@@ -234,8 +257,36 @@
 
         <!-- Temperature Sensors -->
 
+        <!-- Which of the sensors below drives the CPU and the GPU read-out
+             in the graphical interface (the names must match a Sensor entry)
+
+             Measured on a Victus 15-fa0xxx (i5-12450H) with -EcMon across an
+             idle / full-load / cooldown cycle, against OMEN Gaming Hub:
+
+               register        idle    peak    Gaming Hub peak
+               RTMP (0x58)       45      97    96  <- the CPU die
+               CPUT (0x57)       45      47    96  <- barely moves
+               GPTM (0xb7)       39      49    49  <- the GPU
+
+             CPUT is a heavily smoothed value that spans all of three degrees
+             under full load, so despite the name it is useless as a CPU
+             reading here; RTMP tracks the real die temperature to within a
+             degree. The register names come from the DSDT of an Omen 16
+             (8A13/8A14) and do not necessarily describe what a Victus wires
+             them to - on an Omen, CPUT may well be the right choice. -->
+        <GuiTempSensorCpu>RTMP</GuiTempSensorCpu>
+        <GuiTempSensorGpu>GPTM</GuiTempSensorGpu>
+
         <!-- Note: nine default sensors are hard-coded in the application
-             and will be used instead if none are defined here -->
+             and will be used instead if none are defined here
+
+             The Use flag only controls whether a sensor counts towards the
+             maximum temperature that drives the fan programs; every sensor is
+             still displayed either way. TNT3 and TNT5 are pinned at 98 on the
+             Victus 15-fa0xxx while everything else idles in the 39-46 range,
+             so they are excluded: left enabled, the maximum is permanently 98
+             and every fan curve sits on its topmost step no matter how cool
+             the machine actually is. -->
         <Temperature>
             <Sensor Name="CPUT" Source="EC" />
             <Sensor Name="GPTM" Source="EC" />
@@ -243,9 +294,9 @@
             <Sensor Name="RTMP" Source="EC" />
             <Sensor Name="TMP1" Source="EC" />
             <Sensor Name="TNT2" Source="EC" />
-            <Sensor Name="TNT3" Source="EC" />
+            <Sensor Name="TNT3" Source="EC" Use="false" />
             <Sensor Name="TNT4" Source="EC" />
-            <Sensor Name="TNT5" Source="EC" />
+            <Sensor Name="TNT5" Source="EC" Use="false" />
         </Temperature>
 
         <!-- Update Interval -->
@@ -253,10 +304,15 @@
         <!-- How often the dynamic notification icon is updated [s] -->
         <UpdateIconInterval>3</UpdateIconInterval>
 
-        <!-- How often the monitoring data on the main form is updated [s] -->
-        <UpdateMonitorInterval>3</UpdateMonitorInterval>
+        <!-- How often the monitoring data on the main form is updated [s]
+             (also how often a running fan curve re-checks its thresholds) -->
+        <UpdateMonitorInterval>1</UpdateMonitorInterval>
 
-        <!-- How often the fan program is updated (if running) [s] -->
+        <!-- How often the fan program is updated (if running) [s]
+             Note: this is only the periodic refresh that keeps the fan mode
+             and the manual-control countdown alive. Crossing into a different
+             temperature threshold re-applies the curve straight away, without
+             waiting for this interval to come round -->
         <UpdateProgramInterval>15</UpdateProgramInterval>
 
     </Config>

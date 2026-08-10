@@ -206,12 +206,55 @@ namespace OmenMon.Library {
             return null;
         }
 
+        // Whether the calling thread already holds the Embedded Controller lock.
+        // The mutex is system-wide and shared with the vendor's own software, so
+        // taking it once per register is where a monitoring pass spends its time:
+        // a batch takes it once and every nested operation rides along.
+        [ThreadStatic]
+        private static bool EcLockHeld;
+
+        // Groups several Embedded Controller operations into a single locked
+        // batch. Does nothing at all if the lock cannot be taken, leaving the
+        // previous readings in place rather than replacing them with zeroes.
+        public static bool EcBatch(Action callback) {
+            if(Hw.Ec == null)
+                return false;
+
+            if(EcLockHeld) {
+                callback();
+                return true;
+            }
+
+            if(!Hw.Ec.Request(Config.EcMutexTimeout)) {
+                App.Error("ErrEcLock");
+                return false;
+            }
+
+            EcLockHeld = true;
+            try {
+                callback();
+            } finally {
+                EcLockHeld = false;
+                Hw.Ec.Release();
+            }
+            return true;
+        }
+
         // Runs operations while the Embedded Controller is locked for exclusive use
         public static void EcExec(Action<IEmbeddedController> callback, IEmbeddedController ec) {
+
+            // Already inside a batch on this thread: the lock is held
+            if(EcLockHeld) {
+                callback(ec);
+                return;
+            }
+
             if(ec.Request(Config.EcMutexTimeout)) {
+                EcLockHeld = true;
                 try {
                     callback(ec);
                 } finally {
+                    EcLockHeld = false;
                     ec.Release();
                 }
             }
@@ -222,10 +265,17 @@ namespace OmenMon.Library {
 
         // Runs operations while the Embedded Controller is locked for exclusive use and returns a result
         public static TResult EcExec<TResult>(Func<IEmbeddedController,TResult> callback, IEmbeddedController ec) {
+
+            // Already inside a batch on this thread: the lock is held
+            if(EcLockHeld)
+                return (TResult) callback(ec);
+
             if(ec.Request(Config.EcMutexTimeout)) {
+                EcLockHeld = true;
                 try {
                     return (TResult) callback(ec);
                 } finally {
+                    EcLockHeld = false;
                     ec.Release();
                 }
             } else {

@@ -38,14 +38,26 @@ namespace OmenMon.AppWpf {
             var statusTxt = new TextBlock { FontSize = 12.5, Foreground = T.Br(T.FgSec), VerticalAlignment = VerticalAlignment.Center };
             statusTxt.SetBinding(TextBlock.TextProperty, OneWay("StatusText"));
             statusRow.Children.Add(statusTxt);
-            var uptime = new TextBlock { FontSize = 12, Foreground = T.Br(T.FgMute), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+            var uptime = new TextBlock { FontSize = 12, Foreground = T.Br(T.FgMute), VerticalAlignment = VerticalAlignment.Center };
             uptime.SetBinding(TextBlock.TextProperty, new Binding("UptimeText") { StringFormat = "运行时长  {0}", Mode = BindingMode.OneWay });
+
+            // Measured refresh rate — makes it plain whether the read-outs really
+            // are updating on the configured interval, or the Embedded Controller
+            // is being held up by something else on the system
+            var poll = new TextBlock { FontSize = 12, Foreground = T.Br(T.FgMute), VerticalAlignment = VerticalAlignment.Center };
+            poll.SetBinding(TextBlock.TextProperty, new Binding("PollInfo") { Mode = BindingMode.OneWay });
+
+            var rightPanel = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            rightPanel.Children.Add(poll);
+            rightPanel.Children.Add(new TextBlock { Text = "  ·  ", FontSize = 12, Foreground = T.Br(T.FgMute), VerticalAlignment = VerticalAlignment.Center });
+            rightPanel.Children.Add(uptime);
+
             var statusGrid = new Grid();
             statusGrid.ColumnDefinitions.Add(new ColumnDefinition());
             statusGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
             statusGrid.Children.Add(statusRow);
-            Grid.SetColumn(uptime, 1);
-            statusGrid.Children.Add(uptime);
+            Grid.SetColumn(rightPanel, 1);
+            statusGrid.Children.Add(rightPanel);
             statusCard.Child = statusGrid;
             root.Children.Add(statusCard);
 

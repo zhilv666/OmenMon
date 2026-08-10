@@ -100,6 +100,21 @@ namespace OmenMon.Library {
 
         }
 
+        // Retrieves a signed integer value from the XML configuration file
+        // (unlike GetWord(), also accepts negative values, as used by the
+        // overlay position, which may be off to the left on a multi-monitor setup)
+        private static bool GetInt(XmlDocument xml, string node, out int value) {
+            value = 0;
+            try {
+                return int.TryParse(
+                    xml.SelectSingleNode(node).InnerText.Trim(),
+                    System.Globalization.NumberStyles.AllowLeadingSign,
+                    System.Globalization.CultureInfo.InvariantCulture,
+                    out value);
+            } catch {  }
+            return false;
+        }
+
         // Retrieves a string value from the XML configuration file
         private static string GetString(XmlDocument xml, string node) {
             string value = "";
@@ -138,6 +153,8 @@ namespace OmenMon.Library {
 
                     // Read the configuration and parse it into values
                     bool flag;
+                    int number;
+                    string text;
                     ushort value;
 
                     if(GetBool(xml, XmlPrefix + "AutoConfig", out flag))
@@ -215,11 +232,38 @@ namespace OmenMon.Library {
                     if(GetBool(xml, XmlPrefix + "GuiDynamicIconHasBackground", out flag))
                         GuiDynamicIconHasBackground = flag;
 
+                    GuiFanCurveActive =
+                        GetString(xml, XmlPrefix + "GuiFanCurveActive");
+
+                    if((text = GetString(xml, XmlPrefix + "GuiOverlayStyle")) != "")
+                        GuiOverlayStyle = text;
+
+                    if(GetInt(xml, XmlPrefix + "GuiOverlayOpacity", out number))
+                        GuiOverlayOpacity = number;
+
+                    if(GetInt(xml, XmlPrefix + "GuiOverlayScale", out number))
+                        GuiOverlayScale = number;
+
+                    if(GetInt(xml, XmlPrefix + "GuiOverlayLeft", out number))
+                        GuiOverlayLeft = number;
+
+                    if(GetInt(xml, XmlPrefix + "GuiOverlayTop", out number))
+                        GuiOverlayTop = number;
+
+                    if(GetBool(xml, XmlPrefix + "GuiOverlayShow", out flag))
+                        GuiOverlayShow = flag;
+
                     if(GetBool(xml, XmlPrefix + "GuiStayOnTop", out flag))
                         GuiStayOnTop = flag;
 
                     if(GetWord(xml, XmlPrefix + "GuiSysInfoFontSize", out value))
                         GuiSysInfoFontSize = value;
+
+                    if((text = GetString(xml, XmlPrefix + "GuiTempSensorCpu")) != "")
+                        GuiTempSensorCpu = text;
+
+                    if((text = GetString(xml, XmlPrefix + "GuiTempSensorGpu")) != "")
+                        GuiTempSensorGpu = text;
 
                     if(GetWord(xml, XmlPrefix + "GuiTipDuration", out value))
                         GuiTipDuration = value;
@@ -518,8 +562,17 @@ namespace OmenMon.Library {
                     SetBool(xml, XmlPrefix + "GuiDpiChangeResize", GuiDpiChangeResize);
                     SetBool(xml, XmlPrefix + "GuiDynamicIcon", GuiDynamicIcon);
                     SetBool(xml, XmlPrefix + "GuiDynamicIconHasBackground", GuiDynamicIconHasBackground);
+                    SetString(xml, XmlPrefix + "GuiFanCurveActive", GuiFanCurveActive);
+                    SetString(xml, XmlPrefix + "GuiOverlayStyle", GuiOverlayStyle);
+                    SetInt(xml, XmlPrefix + "GuiOverlayOpacity", GuiOverlayOpacity);
+                    SetInt(xml, XmlPrefix + "GuiOverlayScale", GuiOverlayScale);
+                    SetInt(xml, XmlPrefix + "GuiOverlayLeft", GuiOverlayLeft);
+                    SetInt(xml, XmlPrefix + "GuiOverlayTop", GuiOverlayTop);
+                    SetBool(xml, XmlPrefix + "GuiOverlayShow", GuiOverlayShow);
                     SetBool(xml, XmlPrefix + "GuiStayOnTop", GuiStayOnTop);
                     SetUInt(xml, XmlPrefix + "GuiSysInfoFontSize", (uint) GuiSysInfoFontSize);
+                    SetString(xml, XmlPrefix + "GuiTempSensorCpu", GuiTempSensorCpu);
+                    SetString(xml, XmlPrefix + "GuiTempSensorGpu", GuiTempSensorGpu);
                     SetUInt(xml, XmlPrefix + "GuiTipDuration", (uint) GuiTipDuration);
                     SetBool(xml, XmlPrefixKeyCustomAction + "Enabled", KeyCustomActionEnabled);
                     SetString(xml, XmlPrefixKeyCustomAction + "ExecCmd", KeyCustomActionExecCmd);
@@ -617,6 +670,16 @@ namespace OmenMon.Library {
         // Wrapper for SetPath() starting at document root
         private static XmlNode SetPath(XmlDocument xml, string path) {
             return SetPath(xml, (XmlNode) xml, path);
+        }
+
+        // Sets a signed integer value in the XML configuration file
+        private static bool SetInt(XmlDocument xml, string node, int value) {
+            try {
+                (SetPath(xml, node)).InnerText =
+                    value.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                return true;
+            } catch {  }
+            return false;
         }
 
         // Sets a string value in the XML configuration file

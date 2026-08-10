@@ -12,6 +12,7 @@ using System.Windows.Markup;
 using System.Windows.Media;
 using System.Windows.Media.Effects;
 using System.Windows.Shapes;
+using OmenMon.Library;
 using SWM = System.Windows.Media;
 
 namespace OmenMon.AppWpf {
@@ -32,12 +33,26 @@ namespace OmenMon.AppWpf {
 
         // Live-adjustable appearance, shared across overlay windows and set
         // from the sidebar. Opacity 0.25–1.0, scale 0.6–1.6 (1.0 = 100%).
+        // Seeded from the saved configuration by RestoreFromConfig().
         public static double CurrentOpacity = 1.0;
         public static double CurrentScale   = 1.0;
+
+        // Applies the appearance stored in OmenMon.xml. Called once at startup,
+        // before the first overlay window is constructed.
+        public static void RestoreFromConfig() {
+            CurrentStyle = string.Equals(Config.GuiOverlayStyle, "Compact",
+                StringComparison.OrdinalIgnoreCase) ? OverlayStyle.Compact : OverlayStyle.Card;
+            CurrentOpacity = ClampOpacity(Config.GuiOverlayOpacity / 100.0);
+            CurrentScale   = ClampScale(Config.GuiOverlayScale / 100.0);
+        }
 
         private readonly OverlayStyle _style;
         private ScaleTransform _scale;
         private Border _shellBorder;   // The outer glass background; opacity slider targets this only.
+
+        // Set once the initial placement is done, so that positioning the window
+        // ourselves is not mistaken for the user having dragged it somewhere
+        private bool _trackPosition;
 
         // ── palette ────────────────────────────────────────────────────────
         static SolidColorBrush B(string hex) => new SolidColorBrush((SWM.Color) SWM.ColorConverter.ConvertFromString(hex));
@@ -93,14 +108,68 @@ namespace OmenMon.AppWpf {
             Closed += (s, e) => _vm.PropertyChanged -= OnVmChanged;
 
             Loaded += (s, e) => {
-                Left = SystemParameters.WorkArea.Right  - ActualWidth  - 20;
-                Top  = SystemParameters.WorkArea.Bottom - ActualHeight - 20;
+                RestorePosition();
                 RunUpdaters();
+            };
+
+            // Remember wherever the user drags the panel to
+            LocationChanged += (s, e) => {
+                if(_trackPosition)
+                    WpfApp.Instance?.SaveOverlayPosition(Left, Top);
             };
         }
 
-        // Redraw the ring arcs whenever the polled data changes.
-        private void OnVmChanged(object s, PropertyChangedEventArgs e) => Dispatcher.Invoke(RunUpdaters);
+        // Puts the panel back where it was left, or in the bottom-right corner
+        // when there is nothing stored yet.
+        private void RestorePosition() {
+
+            if(Config.GuiOverlayLeft != Config.GuiOverlayPositionUnset
+                && Config.GuiOverlayTop != Config.GuiOverlayPositionUnset
+                && IsOnScreen(Config.GuiOverlayLeft, Config.GuiOverlayTop)) {
+
+                Left = Config.GuiOverlayLeft;
+                Top  = Config.GuiOverlayTop;
+
+            } else {
+
+                Left = SystemParameters.WorkArea.Right  - ActualWidth  - 20;
+                Top  = SystemParameters.WorkArea.Bottom - ActualHeight - 20;
+
+            }
+
+            _trackPosition = true;
+
+        }
+
+        // Guards against restoring onto a monitor that is no longer attached:
+        // enough of the panel has to land within the virtual desktop for it to
+        // still be grabbable with the mouse.
+        private bool IsOnScreen(double left, double top) {
+
+            const double margin = 80;
+
+            double leftEdge = SystemParameters.VirtualScreenLeft;
+            double topEdge  = SystemParameters.VirtualScreenTop;
+
+            return left + margin <= leftEdge + SystemParameters.VirtualScreenWidth
+                && left + ActualWidth - margin >= leftEdge
+                && top + margin <= topEdge + SystemParameters.VirtualScreenHeight
+                && top + ActualHeight - margin >= topEdge;
+
+        }
+
+        // Redraw the ring arcs whenever the polled data changes. Only the two
+        // temperature rings are drawn by hand — everything else on the panel is
+        // data-bound and refreshes itself — so this filters down to the two
+        // properties that actually move them. It used to fire on every single
+        // notification, rebuilding and freezing the arc geometry a couple of
+        // dozen times per poll for no visible difference.
+        private void OnVmChanged(object s, PropertyChangedEventArgs e) {
+            if(e.PropertyName != nameof(HardwareViewModel.CpuTemp)
+                && e.PropertyName != nameof(HardwareViewModel.GpuTemp))
+                return;
+            Dispatcher.Invoke(RunUpdaters);
+        }
         private void RunUpdaters() { foreach(var u in _updaters) u(); }
 
         // ── Live appearance controls (driven from the sidebar) ─────────────
@@ -317,7 +386,9 @@ namespace OmenMon.AppWpf {
             btn.Template = Theme.RoundedButtonTemplate(9);
             btn.MouseEnter += (s, e) => btn.Background = B("#33C0303C");
             btn.MouseLeave += (s, e) => btn.Background = Brushes.Transparent;
-            btn.Click += (s, e) => Hide();
+            // Dismissing from here bypasses ToggleOverlay(), so the new state
+            // has to be recorded explicitly for it to survive a restart
+            btn.Click += (s, e) => { Hide(); WpfApp.Instance?.NoteOverlayVisible(false); };
             return btn;
         }
 

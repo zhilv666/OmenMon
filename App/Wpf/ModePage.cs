@@ -27,21 +27,16 @@ namespace OmenMon.AppWpf {
 
             root.Children.Add(T.PageHeader("性能模式", "一键切换风扇预设"));
 
-            // (icon, title, desc, preset, accent)
-            var modes = new (string, string, string, string, SWM.Color)[] {
-                ("⚙",  "自动",    "BIOS 自动调节\n跟随温度曲线",   "Auto",   T.Blue),
-                ("🚀", "最大转速", "全速散热\n适合游戏 / 高负载",   "Max",    T.Red),
-                ("⚡", "高速",    "较高转速\n性能与噪音平衡",       "High",   T.Amber),
-                ("🌿", "中速",    "适合日常写代码\n开浏览器",       "Mid",    T.Green),
-                ("🌙", "安静",    "最低转速\n极致安静体验",         "Silent", T.Violet),
-            };
+            // Cards come straight from the shared preset table, which the tray
+            // menu also uses, so the two lists always offer the same options
+            var modes = HardwareViewModel.Presets;
 
             var grid = new UniformGrid { Columns = 3 };
             double g = T.CardGap / 2;
-            for(int i = 0; i < modes.Length; i++) {
-                var (icon, title, desc, preset, accent) = modes[i];
+            for(int i = 0; i < modes.Count; i++) {
+                var m = modes[i];
                 int col = i % 3, rowIdx = i / 3;
-                var card = ModeCard(icon, title, desc, preset, accent);
+                var card = ModeCard(m.Icon, m.Name, m.Detail, m.Key, T.Accent(m.Accent));
                 card.Margin = new Thickness(col == 0 ? 0 : g, 0, col == 2 ? 0 : g, rowIdx == 0 ? T.CardGap : 0);
                 grid.Children.Add(card);
             }

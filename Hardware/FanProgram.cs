@@ -73,6 +73,11 @@ namespace OmenMon.Hardware.Platform {
         // to facilitate threshold look-ups
         private List<byte> Levels;
 
+        // The threshold the last update settled on, so that a caller polling
+        // more frequently than the program interval can spot a boundary being
+        // crossed and re-apply immediately instead of waiting out the interval
+        public byte LastLevel { get; private set; }
+
         // Name of the last running program
         private string Name;
 
@@ -91,6 +96,7 @@ namespace OmenMon.Hardware.Platform {
             this.IsSuspended = false;
             this.LastFanMode = BiosData.FanMode.Default;
             this.LastGpuPowerData = default(BiosData.GpuPowerData);
+            this.LastLevel = 0;
             this.Levels = new List<byte>();
             this.Name = "";
             this.Platform = platform;
@@ -241,6 +247,9 @@ namespace OmenMon.Hardware.Platform {
             byte level = GetTemperatureLevel(temperature);
             byte[] fans = GetFanLevel(level);
 
+            // Remember the threshold in effect
+            this.LastLevel = level;
+
             // Note: the above could all be accomplished with
             // a single nested call, except we also want to report
             Status(Severity.Notice,
@@ -283,6 +292,10 @@ namespace OmenMon.Hardware.Platform {
         private byte GetTemperatureLevel(byte temperature) {
             int value;
 
+            // Nothing to search through
+            if(this.Levels.Count == 0)
+                return 0;
+
             // Binary-search the level list
             // If the result is non-negative, an index was found
             if((value = Levels.BinarySearch(temperature)) >= 0)
@@ -292,10 +305,26 @@ namespace OmenMon.Hardware.Platform {
 
             // The result is a bitwise complement of the next larger item index,
             // or the index of the last element of the list if no larger item exists
-            else
+            else {
 
-                // Return the item at the binary complement index less one
-                return this.Levels[~value - 1];
+                // Step down to the threshold below the next larger one, staying
+                // on the lowest threshold when the temperature is under every
+                // one of them: a curve is not required to start at zero, and
+                // indexing at -1 would otherwise throw and take the whole
+                // program update down with it
+                int index = ~value - 1;
+                return this.Levels[index < 0 ? 0 : index];
+
+            }
+
+        }
+
+        // Resolves which threshold a temperature falls into without applying
+        // anything, so a caller polling more often than the program interval
+        // can tell that a boundary has been crossed
+        public byte GetLevel(byte temperature) {
+
+            return GetTemperatureLevel(temperature);
 
         }
 

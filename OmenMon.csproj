@@ -167,7 +167,10 @@
     <Target Name="BuildBeginning" BeforeTargets="BeforeBuild">
     </Target>
     <Target Name="BuildComplete" AfterTargets="AfterBuild">
-        <Copy SourceFiles="OmenMon.xml" DestinationFolder="$(OutDir)" />
+        <!-- Only seed the configuration file: overwriting it would throw away
+             everything the application has saved there, such as the fan curves
+             and the overlay settings -->
+        <Copy SourceFiles="OmenMon.xml" DestinationFolder="$(OutDir)" Condition="!Exists('$(OutDir)OmenMon.xml')" />
         <!-- <Exec Command="robocopy /nc /ndl /nfl /njh /njs /np /ns /r:2 /w:5 Bin \\Momentum\Exchange\ OmenMon.*" IgnoreExitCode="true" /> -->
     </Target>
     <Target Name="DeleteDirs" AfterTargets="Clean">

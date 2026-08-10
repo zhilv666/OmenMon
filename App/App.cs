@@ -109,8 +109,19 @@ namespace OmenMon {
         }
 
 #region Error & Exit Handlers
+        // Suppresses error pop-ups on the calling thread. Background monitoring
+        // sets this: failing to take the Embedded Controller lock is routine
+        // when the vendor's software is polling at the same moment, and a modal
+        // dialog raised from the polling thread would block that thread until
+        // dismissed - freezing the very read-outs it is there to refresh.
+        [ThreadStatic]
+        public static bool IsErrorSilent;
+
         // Handles an error depending on whether the application is running in CLI or GUI mode
         public static void Error(string messageIds, Exception e = null) {
+
+            if(IsErrorSilent)
+                return;
 
             if(Cli.IsInitialized) {
 

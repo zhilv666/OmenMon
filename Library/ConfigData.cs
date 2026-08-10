@@ -198,6 +198,26 @@ namespace OmenMon.Library {
         // Name under which a custom message identifier is registered for cross-instance communication
         public const string GuiMessageId = "WM_OMENMON_FOCUS";
 
+        // Name of the fan curve that was running when the application last
+        // exited, so it can be picked up again on the next start instead of
+        // having to be applied by hand every time. Empty means none was.
+        public static string GuiFanCurveActive = "";
+
+        // Floating overlay monitor appearance and last-known state, all saved
+        // to the configuration file so the panel returns exactly as it was left
+        public static string GuiOverlayStyle = "Card"; // Card or Compact
+        public static int GuiOverlayOpacity = 100;     // Backdrop opacity [%]
+        public static int GuiOverlayScale = 100;       // Overall size ratio [%]
+
+        // Last overlay position [px], relative to the virtual desktop
+        // Unset means the overlay goes to the bottom-right corner instead
+        public const int GuiOverlayPositionUnset = int.MinValue;
+        public static int GuiOverlayLeft = GuiOverlayPositionUnset;
+        public static int GuiOverlayTop = GuiOverlayPositionUnset;
+
+        // Whether the overlay was on screen when it was last dismissed
+        public static bool GuiOverlayShow = false;
+
         // Inset for the customized progress bar
         public const int GuiProgressBarInset = 2;
 
@@ -212,6 +232,19 @@ namespace OmenMon.Library {
 
         // How long to show a tip in the notification area, disabled if set to 0
         public static int GuiTipDuration = 30000;
+
+        // Which named temperature sensor drives the CPU and the GPU read-out
+        // Must match one of the <Sensor Name="..."> entries below: taking them
+        // by array position instead picks whatever happens to be listed first
+        // Note: RTMP rather than CPUT for the CPU. Measured on a Victus
+        // 15-fa0xxx over an idle/load/cooldown cycle, CPUT moved 45 to 47 while
+        // the die actually hit 96, whereas RTMP peaked at 97. The register
+        // names come from an Omen 16 DSDT and do not always describe what a
+        // given model wires them to, hence both are configurable
+        public const string GuiTempSensorCpuDefault = "RTMP";
+        public const string GuiTempSensorGpuDefault = "GPTM";
+        public static string GuiTempSensorCpu = GuiTempSensorCpuDefault;
+        public static string GuiTempSensorGpu = GuiTempSensorGpuDefault;
 
         // Custom action for the Omen key handler
         public static bool KeyCustomActionEnabled = false;
@@ -264,7 +297,10 @@ namespace OmenMon.Library {
         public const int MaxBelievablePercent = 100;
 
         // Maximum believable temperature value when reading from the Embedded Controller
-        public const int MaxBelievableTemperature = 99;
+        // Note: kept above the boiling point of a laptop CPU on purpose. At the previous
+        // limit of 99 every reading of 100 °C and up - routine under sustained load - was
+        // dropped as implausible, so the read-out silently froze at its last sub-100 value
+        public const int MaxBelievableTemperature = 105;
 
         // nVidia Display Container service name
         public const string NvDisplayContainerService = "NVDisplay.ContainerLocalSystem";
@@ -427,7 +463,9 @@ namespace OmenMon.Library {
         public static int UpdateIconInterval = 3;
 
         // How often the monitoring data on the main form is updated (in ticks)
-        public static int UpdateMonitorInterval = 3;
+        // Note: one second so the read-outs keep pace with the vendor tools.
+        // This also sets how often the fan curve re-checks its thresholds
+        public static int UpdateMonitorInterval = 1;
 
         // How often the program settings are updated (in ticks)
         public static int UpdateProgramInterval = 15;
