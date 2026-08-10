@@ -423,9 +423,13 @@ namespace OmenMon.Library {
                     (byte) EmbeddedControllerData.Register.TNT2),
 
                 // Auxilliary EC temperature probe #3
+                // Note: not counted towards the maximum. Measured on a Victus
+                // 15-fa0xxx it is pinned at 98 while everything else idles in
+                // the 39-46 range, which would peg any fan curve at its topmost
+                // step for good. Same for TNT5, which mirrors it
                 ["TNT3"] = new TemperatureSensorData(
                     PlatformData.LinkType.EmbeddedController,
-                    (byte) EmbeddedControllerData.Register.TNT3),
+                    (byte) EmbeddedControllerData.Register.TNT3, false),
 
                 // Auxilliary EC temperature probe #4
                 ["TNT4"] = new TemperatureSensorData(
@@ -433,9 +437,10 @@ namespace OmenMon.Library {
                     (byte) EmbeddedControllerData.Register.TNT4),
 
                 // Auxilliary EC temperature probe #5
+                // Note: not counted towards the maximum, see TNT3 above
                 ["TNT5"] = new TemperatureSensorData(
                     PlatformData.LinkType.EmbeddedController,
-                    (byte) EmbeddedControllerData.Register.TNT5) };
+                    (byte) EmbeddedControllerData.Register.TNT5, false) };
 
         // Maximum number of temperature sensors
         public const int TemperatureSensorMax = 9;

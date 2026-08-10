@@ -180,17 +180,30 @@ namespace OmenMon.Hardware.Platform {
 #endregion
 
 #region Information Retrieval
+        // Rebuilds the sensor array from the current configuration. Needed after
+        // the settings are re-read at run time (a configuration import), since
+        // otherwise the sensors set up at start-up stay in effect until restart
+        // — including their use flags, which decide the maximum temperature.
+        public void ReloadTemperatureSensors() {
+            InitTemperature();
+        }
+
         // Looks a temperature sensor up by its configured name, returning null
         // if no such sensor is defined. Preferred over indexing into the array,
         // which depends on the order the sensors happen to appear in the settings
         public IPlatformReadComponent GetTemperatureSensor(string name) {
 
-            if(string.IsNullOrEmpty(name) || this.TemperatureName == null)
+            // Snapshot both arrays: a reload can swap them under a caller that
+            // polls on another thread, and the two are assigned separately
+            IPlatformReadComponent[] sensors = this.Temperature;
+            string[] names = this.TemperatureName;
+
+            if(string.IsNullOrEmpty(name) || names == null || sensors == null)
                 return null;
 
-            for(int i = 0; i < this.TemperatureName.Length; i++)
-                if(string.Equals(this.TemperatureName[i], name, StringComparison.OrdinalIgnoreCase))
-                    return this.Temperature[i];
+            for(int i = 0; i < names.Length && i < sensors.Length; i++)
+                if(string.Equals(names[i], name, StringComparison.OrdinalIgnoreCase))
+                    return sensors[i];
 
             return null;
 
@@ -199,12 +212,15 @@ namespace OmenMon.Hardware.Platform {
         // Reports whether a named sensor counts towards the maximum temperature
         public bool IsTemperatureUsed(string name) {
 
-            if(string.IsNullOrEmpty(name) || this.TemperatureName == null)
+            string[] names = this.TemperatureName;
+            bool[] used = this.TemperatureUse;
+
+            if(string.IsNullOrEmpty(name) || names == null || used == null)
                 return false;
 
-            for(int i = 0; i < this.TemperatureName.Length; i++)
-                if(string.Equals(this.TemperatureName[i], name, StringComparison.OrdinalIgnoreCase))
-                    return this.TemperatureUse[i];
+            for(int i = 0; i < names.Length && i < used.Length; i++)
+                if(string.Equals(names[i], name, StringComparison.OrdinalIgnoreCase))
+                    return used[i];
 
             return false;
 
@@ -218,17 +234,23 @@ namespace OmenMon.Hardware.Platform {
             if(forceUpdate)
                 UpdateTemperature(true);
 
+            IPlatformReadComponent[] sensors = this.Temperature;
+            bool[] used = this.TemperatureUse;
+
             // Reset the state
             this.LastMaxTemperature = 0;
             byte value;
 
+            if(sensors == null || used == null)
+                return this.LastMaxTemperature;
+
             // Iterate through the platform temperature array
-            for(int i = 0; i < this.Temperature.Length; i++)
+            for(int i = 0; i < sensors.Length && i < used.Length; i++)
 
                 // Obtain the reading from each temperature sensor
                 // If the value is higher than the current candidate
-                if(this.TemperatureUse[i] // Ignore certain sensors
-                    && (value = (byte) this.Temperature[i].GetValue())
+                if(used[i] // Ignore certain sensors
+                    && (value = (byte) sensors[i].GetValue())
                         > this.LastMaxTemperature)
 
                     // Update the candidate

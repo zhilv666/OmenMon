@@ -131,6 +131,7 @@ jobs:
           GPL-3.0，与上游保持一致，所有修改均已开源。
         files: |
           Bin/OmenMon.exe
+          Bin/OmenMon.xml
         draft: false
         prerelease: false
       env:

@@ -648,6 +648,13 @@ namespace OmenMon.AppWpf {
             try {
                 System.IO.File.Copy(path, Config.FilePath, true);
                 Config.Load();                       // re-read curves + settings
+
+                // The sensor array is built once at start-up, so without this
+                // an imported <Temperature> section — including which sensors
+                // count towards the maximum that drives the fan curves — would
+                // not take effect until the application was restarted
+                Platform.ReloadTemperatureSensors();
+
                 PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CurveNames)));
                 return true;
             } catch { return false; }
