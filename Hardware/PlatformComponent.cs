@@ -47,6 +47,10 @@ namespace OmenMon.Hardware.Platform {
         // Updates the sensor value
         public bool Update();
 
+        // Reads a fresh value, including legitimate zeroes, without returning a
+        // cached value when the hardware read fails.
+        public bool TryRead(out int value);
+
     }
 
     // Defines an interface for interacting with a writeable component
@@ -157,6 +161,16 @@ namespace OmenMon.Hardware.Platform {
 
         // Updates the component value
         public virtual bool Update() {
+            return UpdateValue(true);
+        }
+
+        public bool TryRead(out int value) {
+            bool success = UpdateValue(false);
+            value = success ? this.LastValue : 0;
+            return success;
+        }
+
+        private bool UpdateValue(bool filterZero) {
             // Ensure the component can be read from
             AssertHasAccess(PlatformData.AccessType.Read);
 
@@ -167,14 +181,14 @@ namespace OmenMon.Hardware.Platform {
 
                 // Hold off on one additional time
                 // for values that might be intermittently zeroed
-                if(value == 0 && this.PreviousValue != 0) {
+                if(filterZero && value == 0 && this.PreviousValue != 0) {
                     this.PreviousValue = 0;
                     return false;
                 }
 
                 // Only update if the reading
                 // is not obviously incorrect
-                if(value <= this.Constraint) {
+                if(value >= 0 && value <= this.Constraint) {
 
                     // Update the previous value
                     this.PreviousValue = this.LastValue;

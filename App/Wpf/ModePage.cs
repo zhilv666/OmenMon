@@ -42,6 +42,16 @@ namespace OmenMon.AppWpf {
             }
             root.Children.Add(grid);
 
+            // Keep stop eligibility and recovery warnings visible at the place
+            // where the user selects a preset, not only on the dashboard.
+            var status = new TextBlock {
+                FontSize = 12, Foreground = T.Br(T.FgPri),
+                Margin = new Thickness(0, 16, 0, 0), TextWrapping = TextWrapping.Wrap
+            };
+            status.SetBinding(TextBlock.TextProperty,
+                new System.Windows.Data.Binding(nameof(HardwareViewModel.StatusText)));
+            root.Children.Add(status);
+
             // Reflect the active preset now, and stay in sync if it changes elsewhere
             RefreshActive();
             _onVmChanged = (s, e) => {

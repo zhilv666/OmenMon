@@ -133,7 +133,21 @@ namespace OmenMon.Hardware.Platform {
         }
 
         // Starts a fan program given its name
-        public bool Run(string name, bool isAlternate = false) {
+        public bool Run(string name, bool isAlternate = false, bool strict = false) {
+            if(!strict) return RunCore(name, isAlternate, false);
+            try {
+                return RunCore(name, isAlternate, true);
+            } catch {
+                // A failed takeover must never resume on a later monitoring tick.
+                this.IsEnabled = false;
+                this.IsAlternate = false;
+                this.IsSuspended = false;
+                Reset();
+                throw;
+            }
+        }
+
+        private bool RunCore(string name, bool isAlternate, bool strict) {
 
             // Note: no need to terminate
             // the previous program first, if any
@@ -159,8 +173,8 @@ namespace OmenMon.Hardware.Platform {
             // Save the last GPU power state
             this.LastGpuPowerData = Platform.System.GetGpuPower();
 
-            // Update the program
-            Update();
+            // Update the program; safety takeovers require a strict first write.
+            Update(strict);
 
             // Report success
             return true;
@@ -203,6 +217,11 @@ namespace OmenMon.Hardware.Platform {
             if(!this.IsEnabled)
                 return false;
 
+            // Stop scheduling writes even if hardware cleanup below fails.
+            this.IsAlternate = false;
+            this.IsEnabled = false;
+            this.IsSuspended = false;
+
             // Reset fan speed
             SetFanLevel(new byte[] { Byte.MaxValue, Byte.MaxValue } );
 
@@ -216,11 +235,6 @@ namespace OmenMon.Hardware.Platform {
             // Restore the previous GPU power settings
             UpdateGpuPower(true, this.LastGpuPowerData);
 
-            // Set the state flags
-            this.IsAlternate = false;
-            this.IsEnabled = false;
-            this.IsSuspended = false;
-
             // Reset data
             Reset();
 
@@ -233,7 +247,7 @@ namespace OmenMon.Hardware.Platform {
         }
 
         // Updates the fan program, if any is running
-        public bool Update() {
+        public bool Update(bool strict = false) {
 
             // Fail if no program active
             // or program is suspended
@@ -260,7 +274,12 @@ namespace OmenMon.Hardware.Platform {
                 + Conv.GetString(fans[0], 2, 10) + ", " + Conv.GetString(fans[1], 2, 10));
 
             // Set fan levels
-            SetFanLevel(fans);
+            if(strict) {
+                if(!Platform.Fans.TrySetLevels(fans, out string diagnostic))
+                    throw new InvalidOperationException("曲线首帧风扇等级写入未确认：" + diagnostic);
+            } else {
+                SetFanLevel(fans);
+            }
 
             // Perform other updates, only if necessary
             // or, in case of the fan mode, configured to do so

@@ -40,9 +40,6 @@ namespace OmenMon.Hardware.Ec {
 
         public bool IsInitialized { get; protected set; }
 
-        // Global counter of failed waiting to read attempts
-        protected int WaitReadFailCount = 0;
-
 #region Abstract Methods
         // Initialization and disposal
         // Implementation is driver-specific
@@ -74,7 +71,7 @@ namespace OmenMon.Hardware.Ec {
                     return value;
                 count++;
             }
-            return value;
+            throw new TimeoutException("Embedded Controller byte read timed out.");
         }
 
         // Wrapper to read a word (two bytes) from an Embedded Controller register
@@ -86,7 +83,7 @@ namespace OmenMon.Hardware.Ec {
                     return (ushort) value;
                 count++;
             }
-            return (ushort) value;
+            throw new TimeoutException("Embedded Controller word read timed out.");
         }
 
         // Wrapper to write a byte to an Embedded Controller register
@@ -97,6 +94,7 @@ namespace OmenMon.Hardware.Ec {
                     return;
                 count++;
             }
+            throw new TimeoutException("Embedded Controller byte write timed out.");
         }
 
         // Wrapper to write a word (two bytes) to an Embedded Controller register
@@ -107,6 +105,7 @@ namespace OmenMon.Hardware.Ec {
                     return;
                 count++;
             }
+            throw new TimeoutException("Embedded Controller word write timed out.");
         }
 #endregion
 
@@ -191,15 +190,10 @@ namespace OmenMon.Hardware.Ec {
 
         // Waits for a read operation
         protected bool WaitRead() {
-            if(WaitReadFailCount > Config.EcFailLimit) {
-                return true;
-            } else if(Wait(Status.OutFull, true)) {
-                WaitReadFailCount = 0;
-                return true;
-            } else {
-                WaitReadFailCount++;
-                return false;
-            }
+            // A history of timeouts must not turn a later failed wait into a
+            // successful read of stale port data, especially for temperature
+            // protection and stop-switch readback.
+            return Wait(Status.OutFull, true);
         }
 
         // Waits for a write operation

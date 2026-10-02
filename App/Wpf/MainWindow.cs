@@ -159,9 +159,9 @@ namespace OmenMon.AppWpf {
             Grid.SetRow(statusCard, 1);
             var sc = new StackPanel();
             sc.Children.Add(new TextBlock { Text = "实时状态", Foreground = T.Br(T.FgMute), FontSize = 10, Margin = new Thickness(0, 0, 0, 10) });
-            sc.Children.Add(SideStatRow("CPU 温度", "CpuTemp", "{0}°C", T.Blue));
+            sc.Children.Add(SideStatRow("CPU 温度", "CpuTempText", "{0}°C", T.Blue));
             sc.Children.Add(SideBar("CpuTempBar", T.Blue));
-            sc.Children.Add(SideStatRow("GPU 温度", "GpuTemp", "{0}°C", T.Green));
+            sc.Children.Add(SideStatRow("GPU 温度", "GpuTempText", "{0}°C", T.Green));
             sc.Children.Add(SideBar("GpuTempBar", T.Green));
 
             var modeRow = new Grid { Margin = new Thickness(0, 6, 0, 0) };

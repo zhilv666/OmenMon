@@ -22,6 +22,9 @@ namespace OmenMon.Hardware.Platform {
         // Fan sensors and controls
         public IFanArray Fans { get; private set; }
 
+        // Independent of the EC temperature registers used by fan firmware.
+        public IPlatformReadComponent CpuPackageTemperature { get; private set; }
+
         // Temperature sensor array and which of these values are used
         public IPlatformReadComponent[] Temperature { get; private set; }
         public bool[] TemperatureUse { get; private set; }
@@ -43,6 +46,7 @@ namespace OmenMon.Hardware.Platform {
 
             // Initialize the temperature controls
             InitTemperature();
+            CpuPackageTemperature = IntelPackageTemperatureComponent.Create();
 
         }
 

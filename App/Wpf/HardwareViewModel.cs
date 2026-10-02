@@ -36,9 +36,16 @@ namespace OmenMon.AppWpf {
         private int _gpuTemp;
         public int GpuTemp { get => _gpuTemp; set => Set(ref _gpuTemp, value); }
 
+        private bool _cpuTempValid, _gpuTempValid;
+        public bool CpuTempValid { get => _cpuTempValid; private set => Set(ref _cpuTempValid, value); }
+        public bool GpuTempValid { get => _gpuTempValid; private set => Set(ref _gpuTempValid, value); }
+        public string CpuTempText => CpuTempValid ? CpuTemp.ToString() : "--";
+        public string GpuTempText => GpuTempValid ? GpuTemp.ToString() : "--";
+        private string _temperatureWarning = "";
+
         // Derived: progress bar widths / colours change at 60 / 75 °C
-        public double CpuTempBar => Math.Min(Math.Max(CpuTemp, 0), 100) / 100.0;
-        public double GpuTempBar => Math.Min(Math.Max(GpuTemp, 0), 100) / 100.0;
+        public double CpuTempBar => CpuTempValid ? Math.Min(Math.Max(CpuTemp, 0), 100) / 100.0 : 0;
+        public double GpuTempBar => GpuTempValid ? Math.Min(Math.Max(GpuTemp, 0), 100) / 100.0 : 0;
 
         // --- Fan ----------------------------------------------------------
         private int _cpuFanRpm;
@@ -124,6 +131,11 @@ namespace OmenMon.AppWpf {
 
         // Fan-curve engine (runs the temperature→speed table from the config)
         private FanProgram _program;
+        private readonly FanOffController _fanOff;
+        private readonly object _controlGate = new object();
+        private bool _disposed;
+        private bool _suspended;
+        private int _controlVersion;
 
         // Poll cadence [s], and how many poll ticks make up one fan-program
         // interval. Both come from the configuration; the poll interval used to
@@ -140,6 +152,7 @@ namespace OmenMon.AppWpf {
 
             // Fan-curve engine — status is surfaced through CurveStatus instead
             _program = new FanProgram(platform, (sev, msg) => { });
+            _fanOff = new FanOffController(platform.Fans, Hw.EcBatch, () => Config.FanLevelNeedManual);
 
             _pollInterval = Math.Max(1, Config.UpdateMonitorInterval);
             _programEvery = Math.Max(1, (int) Math.Round(
@@ -155,8 +168,68 @@ namespace OmenMon.AppWpf {
         }
 
         public void Dispose() {
-            _timer?.Stop();
-            _timer?.Dispose();
+            lock(_controlGate) {
+                if(_disposed) return;
+                _disposed = true;
+                ++_controlVersion;
+                _timer?.Stop();
+                _timer?.Dispose();
+                RestoreFanOffForLifecycle("程序退出，取消停扇", 3);
+            }
+        }
+
+        // Power events may run off the UI thread. Restore synchronously, but
+        // never wait for the dispatcher while holding the hardware gate.
+        public void HandlePowerChange(bool suspended) {
+            int version;
+            bool changed;
+            lock(_controlGate) {
+                if(_disposed) return;
+                _suspended = suspended;
+                version = ++_controlVersion;
+                changed = _fanOff.NeedsMonitoring || ActivePreset == "Off" || ActivePreset == "Recovery";
+                if(changed) RestoreFanOffForLifecycle("电源状态变化，取消停扇");
+                UpdatePollInterval();
+            }
+            PostUpdate(() => {
+                if(changed) PublishFanOffState();
+            }, version);
+        }
+
+        // A normal exit can be cancelled while recovery is still pending. Keep
+        // polling alive until the stop switch and automatic control are released.
+        public bool TryPrepareExit() {
+            lock(_controlGate) {
+                if(_disposed) return !_fanOff.NeedsMonitoring;
+                ++_controlVersion;
+                bool monitoredOff = _fanOff.NeedsMonitoring;
+                bool restored = RestoreFanOffForLifecycle("程序退出，取消停扇", 3);
+                if(monitoredOff) PublishFanOffState();
+                UpdatePollInterval();
+                return restored;
+            }
+        }
+
+        private bool RestoreFanOffForLifecycle(string reason, int attempts = 1) {
+            if(!_fanOff.NeedsMonitoring) return true;
+            bool silent = App.IsErrorSilent;
+            App.IsErrorSilent = true;
+            try {
+                for(int i = 0; i < attempts; i++)
+                    if(_fanOff.RestoreAuto(reason)) return true;
+                return false;
+            } finally { App.IsErrorSilent = silent; }
+        }
+
+        private void PostUpdate(Action update, int version) {
+            var dispatcher = Application.Current?.Dispatcher;
+            if(dispatcher == null || dispatcher.HasShutdownStarted) return;
+            dispatcher.BeginInvoke(new Action(() => {
+                lock(_controlGate) {
+                    if(_disposed || version != _controlVersion) return;
+                    update();
+                }
+            }));
         }
 #endregion
 
@@ -170,109 +243,118 @@ namespace OmenMon.AppWpf {
             if(System.Threading.Interlocked.CompareExchange(ref _polling, 1, 0) != 0)
                 return;
 
-            // A lock timeout is expected when vendor software polls at the same
-            // moment; it must not raise a dialog on this thread (see App.Error)
-            App.IsErrorSilent = true;
-            long startMs = _pollClock.ElapsedMilliseconds;
-
+            Action publish = null;
+            int version = 0;
             try {
-                int cputRaw = 0, gptmRaw = 0;
-                int rpm0 = 0, rpm1 = 0, pct0 = 0, pct1 = 0;
-
-                // One lock for the whole pass. Every reading below used to take
-                // and release the system-wide Embedded Controller mutex on its
-                // own — ten acquisitions per tick, each able to wait out
-                // EcMutexTimeout while the vendor's service held it.
-                bool locked = Hw.EcBatch(() => {
-
-                    // Only the sensors feeding the fan curve need refreshing
-                    // every tick; the two read-out sensors are added on top in
-                    // case they are display-only, so nothing else is paid for
-                    Platform.UpdateTemperature(true);
-                    if(!Platform.IsTemperatureUsed(Config.GuiTempSensorCpu))
-                        Platform.UpdateTemperature(Config.GuiTempSensorCpu);
-                    if(!Platform.IsTemperatureUsed(Config.GuiTempSensorGpu))
-                        Platform.UpdateTemperature(Config.GuiTempSensorGpu);
-
-                    cputRaw = ReadTemperature(Config.GuiTempSensorCpu, Config.GuiTempSensorCpuDefault);
-                    gptmRaw = ReadTemperature(Config.GuiTempSensorGpu, Config.GuiTempSensorGpuDefault);
-
-                    try { rpm0 = Platform.Fans.Fan[0].GetSpeed(); } catch { }
-                    try { rpm1 = Platform.Fans.Fan[1].GetSpeed(); } catch { }
-                    try { pct0 = Platform.Fans.Fan[0].GetRate();  } catch { }
-                    try { pct1 = Platform.Fans.Fan[1].GetRate();  } catch { }
-
-                });
-
-                long readMs  = _pollClock.ElapsedMilliseconds - startMs;
-                long sinceMs = _lastPollMs == 0 ? 0 : startMs - _lastPollMs;
-                _lastPollMs = startMs;
-
-                string pollStr = locked
-                    ? string.Format("刷新 {0:0.0}s · 读取 {1} ms", sinceMs / 1000.0, readMs)
-                    : string.Format("刷新 {0:0.0}s · EC 被占用，本次跳过", sinceMs / 1000.0);
-
-                TimeSpan up = DateTime.Now - _startTime;
-                string uptStr = string.Format("{0:D2}:{1:D2}:{2:D2}",
-                    (int) up.TotalHours, up.Minutes, up.Seconds);
-
-                Application.Current?.Dispatcher.Invoke(() => {
-                    if(cputRaw > 0) CpuTemp    = cputRaw;
-                    if(gptmRaw > 0) GpuTemp    = gptmRaw;
-                    if(rpm0 > 0)    CpuFanRpm  = rpm0;
-                    if(rpm1 > 0)    GpuFanRpm  = rpm1;
-                    if(pct0 > 0)    CpuFanPct  = pct0;
-                    if(pct1 > 0)    GpuFanPct  = pct1;
-
-                    // Once per pass, not once per value: this used to raise four
-                    // notifications for each of the six readings, and every one
-                    // of them reached the overlay's redraw handler
-                    NotifyBars();
-
-                    // In auto mode the sliders mirror the live fan rate % so they
-                    // match the read-out; in manual mode they hold the user's value.
-                    if(!IsManualMode) {
-                        if(pct0 > 0) CpuFanLevel = pct0;
-                        if(pct1 > 0) GpuFanLevel = pct1;
-                    }
-
-                    UptimeText = uptStr;
-                    PollInfo   = pollStr;
-                    StatusText = CpuTemp >= 75 ? "⚠ 温度偏高" : "● 系统正常";
-                });
-
-                // Drive the fan-curve engine. It is re-applied on the configured
-                // cadence to keep the fan mode and countdown alive, but also the
-                // instant the temperature crosses into a different threshold —
-                // otherwise a rule could take a whole UpdateProgramInterval to
-                // fire, which reads as the curve simply not working.
-                if(_program != null && _program.IsEnabled) {
-
-                    bool due = ++_programTick >= _programEvery;
-                    bool crossed = false;
-                    byte maxTemp = 0;
-
+                lock(_controlGate) {
+                    if(_disposed || _suspended) return;
+                    bool silent = App.IsErrorSilent;
+                    App.IsErrorSilent = true;
                     try {
-                        // Uses the readings already refreshed above, no extra
-                        // Embedded Controller traffic
-                        maxTemp = Platform.GetMaxTemperature();
-                        crossed = _program.GetLevel(maxTemp) != _program.LastLevel;
-                    } catch { }
+                        version = _controlVersion;
+                        long startMs = _pollClock.ElapsedMilliseconds;
+                        FanOffTemperatures temperatures = default;
+                        int rpm0 = -1, rpm1 = -1, pct0 = -1, pct1 = -1;
 
-                    if(due || crossed) {
-                        _programTick = 0;
-                        try { _program.Update(); } catch { }
+                        bool locked = Hw.EcBatch(() => {
+                            Platform.UpdateTemperature(true);
+                            // Display and stop protection share this fresh sample;
+                            // a failed read must never fall back to the cache.
+                            temperatures = ReadFanOffTemperatures();
+
+                            // Failed reads keep the previous display; a successful
+                            // zero is a real stopped fan and must be published.
+                            if(!Platform.Fans.Fan[0].TryGetSpeed(out rpm0)) rpm0 = -1;
+                            if(!Platform.Fans.Fan[1].TryGetSpeed(out rpm1)) rpm1 = -1;
+                            if(!Platform.Fans.Fan[0].TryGetRate(out pct0)) pct0 = -1;
+                            if(!Platform.Fans.Fan[1].TryGetRate(out pct1)) pct1 = -1;
+                        });
+
+                        bool monitoredOff = _fanOff.NeedsMonitoring;
+                        // Never authorize Off with the cached display values.
+                        // An unavailable monitoring pass is itself unsafe.
+                        _fanOff.Check(() => locked ? temperatures : default);
+                        UpdatePollInterval();
+
+                        string curveStatus = null;
+                        if(!_fanOff.NeedsMonitoring && _program != null && _program.IsEnabled) {
+                            bool due = ++_programTick >= _programEvery;
+                            byte maxTemp = Platform.GetMaxTemperature();
+                            bool crossed = _program.GetLevel(maxTemp) != _program.LastLevel;
+                            if(due || crossed) {
+                                _programTick = 0;
+                                try { _program.Update(); } catch { }
+                            }
+                            curveStatus = GetCurveStatus(maxTemp);
+                        }
+
+                        long readMs = _pollClock.ElapsedMilliseconds - startMs;
+                        long sinceMs = _lastPollMs == 0 ? 0 : startMs - _lastPollMs;
+                        _lastPollMs = startMs;
+                        string pollStr = locked
+                            ? string.Format("刷新 {0:0.0}s · 读取 {1} ms", sinceMs / 1000.0, readMs)
+                            : string.Format("刷新 {0:0.0}s · EC 被占用，本次跳过", sinceMs / 1000.0);
+                        TimeSpan up = DateTime.Now - _startTime;
+                        string uptStr = string.Format("{0:D2}:{1:D2}:{2:D2}",
+                            (int) up.TotalHours, up.Minutes, up.Seconds);
+
+                        publish = () => {
+                            if(rpm0 >= 0) CpuFanRpm = rpm0;
+                            if(rpm1 >= 0) GpuFanRpm = rpm1;
+                            if(pct0 >= 0) CpuFanPct = pct0;
+                            if(pct1 >= 0) GpuFanPct = pct1;
+                            PublishTemperatures(temperatures);
+                            if(monitoredOff) PublishFanOffState();
+                            if(!IsManualMode) {
+                                if(pct0 >= 0) CpuFanLevel = pct0;
+                                if(pct1 >= 0) GpuFanLevel = pct1;
+                            }
+                            if(curveStatus != null) CurveStatus = curveStatus;
+                            UptimeText = uptStr;
+                            PollInfo = pollStr;
+                            StatusText = WithTemperatureWarning(!string.IsNullOrEmpty(_fanOff.Message)
+                                ? _fanOff.Message
+                                : CpuTemp >= 75 ? "⚠ 温度偏高" : "● 系统正常");
+                        };
+                    } catch {
+                        bool monitoredOff = _fanOff.NeedsMonitoring;
+                        if(monitoredOff) {
+                            _fanOff.RestoreAuto("停扇保护：监控异常");
+                            UpdatePollInterval();
+                        }
+                        publish = () => {
+                            PublishTemperatures(default);
+                            if(monitoredOff) PublishFanOffState();
+                            else StatusText = WithTemperatureWarning("监控读取未完成");
+                        };
+                    } finally {
+                        App.IsErrorSilent = silent;
                     }
-
-                    ReportCurveStatus(maxTemp);
-
                 }
-
-            } catch { /* hardware read errors are non-fatal */
+                if(publish != null) PostUpdate(publish, version);
             } finally {
-                App.IsErrorSilent = false;
                 System.Threading.Interlocked.Exchange(ref _polling, 0);
             }
+        }
+
+        // A missing configured name can use its built-in fallback. A failed
+        // reading cannot silently substitute another sensor for CPU or GPU.
+        private FanOffTemperatures ReadFanOffTemperatures(bool enteringOff = false) {
+            // Once selected for stop protection, an unreadable package sensor
+            // must not fall back to RTMP: SFAN can invalidate that EC reading.
+            var cpu = (enteringOff || _fanOff.NeedsMonitoring) && Platform.CpuPackageTemperature != null
+                ? Platform.CpuPackageTemperature
+                : Platform.GetTemperatureSensor(Config.GuiTempSensorCpu)
+                    ?? Platform.GetTemperatureSensor(Config.GuiTempSensorCpuDefault);
+            var gpu = Platform.GetTemperatureSensor(Config.GuiTempSensorGpu)
+                ?? Platform.GetTemperatureSensor(Config.GuiTempSensorGpuDefault);
+            return FanOffTemperatures.Read(cpu, gpu);
+        }
+
+        private void UpdatePollInterval() {
+            // A slow user-configured display cadence must not delay protection.
+            double interval = (_fanOff.NeedsMonitoring ? 1 : _pollInterval) * 1000;
+            if(_timer.Interval != interval) _timer.Interval = interval;
         }
 
         private void NotifyBars() {
@@ -282,23 +364,20 @@ namespace OmenMon.AppWpf {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(GpuFanBar)));
         }
 
-        // Reads the temperature sensor configured for a read-out, by name.
-        // Sensors used to be taken by array index, which quietly returned
-        // whichever one happened to be listed first under <Temperature> rather
-        // than the CPU and the GPU.
-        // Falls back to the built-in name only when the configured one matches
-        // no sensor at all (a typo, or an entry missing from the settings) and
-        // never to some other sensor that merely happens to have a reading:
-        // silently putting the chipset or memory probe on screen labelled as
-        // the CPU is exactly how a plausible-looking wrong figure gets shown.
-        private int ReadTemperature(string name, string fallbackName) {
-            try {
-                var sensor = Platform.GetTemperatureSensor(name)
-                    ?? Platform.GetTemperatureSensor(fallbackName);
-                return sensor == null ? 0 : sensor.GetValue();
-            } catch {
-                return 0;
-            }
+        private void PublishTemperatures(FanOffTemperatures temperatures) {
+            CpuTempValid = temperatures.Cpu.IsValid;
+            GpuTempValid = temperatures.Gpu.IsValid;
+            CpuTemp = CpuTempValid ? temperatures.Cpu.Value : 0;
+            GpuTemp = GpuTempValid ? temperatures.Gpu.Value : 0;
+            _temperatureWarning = temperatures.InvalidMessage;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CpuTempText)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(GpuTempText)));
+            NotifyBars();
+        }
+
+        private string WithTemperatureWarning(string message) {
+            return string.IsNullOrEmpty(_temperatureWarning) || message.Contains(_temperatureWarning) ? message
+                : "⚠ " + _temperatureWarning + "；" + message;
         }
 #endregion
 
@@ -335,6 +414,8 @@ namespace OmenMon.AppWpf {
                 get { return this.Percent < 0; }
             }
 
+            public bool IsOff => this.Key == "Off";
+
         }
 
         public static readonly IList<FanPreset> Presets = new List<FanPreset> {
@@ -342,7 +423,8 @@ namespace OmenMon.AppWpf {
             new FanPreset("Max",    "最大转速", "最大", "🚀", "全速散热\n适合游戏 / 高负载",  100, "Red"),
             new FanPreset("High",   "高速",     "高速", "⚡", "较高转速\n性能与噪音平衡",      82, "Amber"),
             new FanPreset("Mid",    "中速",     "中速", "🌿", "适合日常写代码\n开浏览器",      67, "Green"),
-            new FanPreset("Silent", "安静",     "安静", "🌙", "最低转速\n极致安静体验",        36, "Violet")
+            new FanPreset("Silent", "安静",     "安静", "🌙", "最低转速\n极致安静体验",        36, "Violet"),
+            new FanPreset("Off",    "关闭风扇", "关闭", "⏻",  "仅限低负载 · 低于 60°C\n升温 / 读数异常恢复自动", 0, "Blue")
         }.AsReadOnly();
 
         // Looks a preset up by its identifier, null if there is no such preset
@@ -355,99 +437,161 @@ namespace OmenMon.AppWpf {
 #endregion
 
 #region Fan Control Actions
-        // A fan preset is just a named fixed level (plus Auto). Every fixed
-        // preset goes through the SAME level-based path as the manual sliders —
-        // only the level differs — so one click applies it and all modes behave
-        // consistently. (Max used to use the special SetMaxFan BIOS call, which
-        // needed two clicks to actually engage on this hardware.)
-        // The preset table above is the only place the list is defined.
+        // Off has a dedicated hardware switch; it is not a zero-speed level.
+        // All other fixed presets share the manual slider path.
         public void ApplyPreset(string preset) {
-            try {
-
+            RunFanAction(() => {
                 FanPreset entry = GetPreset(preset);
-                if(entry == null)
-                    return;
-
-                if(entry.IsAuto)
+                if(entry == null) return;
+                if(entry.IsOff) {
+                    StopCurveInternal();
+                    FanOffTemperatures temperatures = default;
+                    _fanOff.Enter(() => temperatures = ReadFanOffTemperatures(true));
+                    // Publish the final safety observation, not a pre-stop cache.
+                    PublishTemperatures(temperatures);
+                    PublishFanOffState();
+                } else if(entry.IsAuto) {
                     SetAuto();
-                else
-                    ApplyPresetLevel(entry.Key, entry.Short, entry.Percent);
+                } else {
+                    ApplyCoolingMode(strict => ApplyPresetLevel(entry.Key, entry.Short, entry.Percent, strict));
+                }
+            });
+        }
 
-            } catch { }
+        private void RunFanAction(Action action) {
+            lock(_controlGate) {
+                if(_disposed || _suspended) return;
+                ++_controlVersion;
+                bool silent = App.IsErrorSilent;
+                App.IsErrorSilent = true;
+                try {
+                    action();
+                } catch {
+                    StatusText = "⚠ 风扇设置未完成，请检查实际转速";
+                    if(_fanOff.NeedsMonitoring) {
+                        _fanOff.RestoreAuto("风扇设置异常，取消停扇");
+                        PublishFanOffState();
+                    }
+                } finally {
+                    UpdatePollInterval();
+                    App.IsErrorSilent = silent;
+                }
+            }
+        }
+
+        private void ApplyCoolingMode(Action<bool> apply) {
+            if(_fanOff.NeedsMonitoring) {
+                if(!_fanOff.TryTakeControl(() => apply(true))) {
+                    // A curve may have started before the final switch read failed.
+                    if(_program.IsEnabled) {
+                        try { StopCurveInternal(); }
+                        finally { _fanOff.RestoreAuto("曲线接管未确认"); }
+                    }
+                    PublishFanOffState();
+                    return;
+                }
+            } else {
+                _fanOff.ClearMessage();
+                apply(false);
+            }
+            StatusText = WithTemperatureWarning("已请求目标风扇模式，请检查实际转速");
+        }
+
+        // Configuration import has no replacement cooling mode: it still needs
+        // the entire automatic recovery, unlike an explicit mode takeover.
+        private bool LeaveFanOff() {
+            if(_fanOff.NeedsMonitoring) {
+                bool restored = _fanOff.RestoreAuto();
+                PublishFanOffState();
+                if(!restored) return false;
+            }
+            _fanOff.ClearMessage();
+            return true;
+        }
+
+        private void PublishFanOffState() {
+            ActivePreset = _fanOff.IsOff ? "Off" : _fanOff.RecoveryPending ? "Recovery" : "Auto";
+            FanModeLabel = _fanOff.IsOff ? "关闭（温度保护）"
+                : _fanOff.RecoveryPending ? "恢复待确认" : "自动";
+            IsManualMode = false;
+            StatusText = WithTemperatureWarning(string.IsNullOrEmpty(_fanOff.Message) ? "已请求 BIOS 自动" : _fanOff.Message);
         }
 
         // Auto: hand the fans back to the BIOS default curve.
         private void SetAuto() {
             StopCurveInternal();
-            ActivePreset = "Auto";
-            FanModeLabel = "自动";
-            IsManualMode = false;
-            Platform.Fans.SetMax(false);
-            Platform.Fans.SetOff(false);
-            Platform.Fans.SetLevels(new byte[] {0xFF, 0xFF});
-            Platform.Fans.SetMode(BiosData.FanMode.Default);
+            _fanOff.RestoreAuto();
+            PublishFanOffState();
         }
 
         // A fixed preset expressed as a fan-speed percentage — same mechanism as
         // manual control, so it engages on the first click and the sliders (also
         // in %) mirror the chosen value.
-        private void ApplyPresetLevel(string key, string label, int pct) {
+        private void ApplyPresetLevel(string key, string label, int pct, bool strict) {
             StopCurveInternal();
+            ApplyLevel(PctToLevel(pct), strict);
             ActivePreset = key;
             FanModeLabel = label;
             IsManualMode = true;
             CpuFanLevel = pct;
             GpuFanLevel = pct;
-            ApplyLevel(PctToLevel(pct));
         }
 
         // Applies one level to both fans through the manual/BIOS path.
-        private void ApplyLevel(byte level) {
+        private void ApplyLevel(byte level, bool strict) {
+            ApplyLevels(new byte[] { level, level }, strict);
+        }
+
+        private void ApplyLevels(byte[] levels, bool strict) {
             Platform.Fans.SetMax(false);
             Platform.Fans.SetOff(false);
-            Platform.Fans.SetLevels(new byte[] {level, level});
+            if(strict) {
+                if(!Platform.Fans.TrySetLevels(levels, out string diagnostic))
+                    throw new InvalidOperationException("目标风扇等级写入未确认：" + diagnostic);
+            } else {
+                Platform.Fans.SetLevels(levels);
+            }
             Platform.Fans.SetMode(Platform.Fans.GetMode());
             Platform.Fans.SetCountdown(Config.FanCountdownExtendInterval);
         }
 
         // Stops a running curve program (if any) and clears the selection.
         private void StopCurveInternal() {
-            if(_program != null && _program.IsEnabled)
-                _program.Terminate();
-            ActiveCurve = "";
-            CurveStatus = "曲线未运行";
+            try {
+                if(_program != null && _program.IsEnabled)
+                    _program.Terminate();
+            } finally {
+                ActiveCurve = "";
+                CurveStatus = "曲线未运行";
+            }
         }
 
         // Switches to manual mode. Seeds both sliders from the current
         // real fan rate so the starting point matches what the fans are
         // actually doing, then applies that level immediately.
         public void EnterManualMode() {
-            IsManualMode = true;
-            // Seed the sliders from the current fan rate % so manual mode starts
-            // exactly where the fans already are.
-            CpuFanLevel = _cpuFanPct > 0 ? _cpuFanPct : 40;
-            GpuFanLevel = _gpuFanPct > 0 ? _gpuFanPct : 40;
-            ApplyManualLevels();
+            RunFanAction(() => ApplyCoolingMode(strict => {
+                CpuFanLevel = _cpuFanPct > 0 ? _cpuFanPct : 40;
+                GpuFanLevel = _gpuFanPct > 0 ? _gpuFanPct : 40;
+                ApplyManualLevelsInternal(strict);
+            }));
         }
 
         public void ApplyManualLevels() {
-            if(!IsManualMode) return;
-            try {
-                // A manual slider change overrides any running curve program
-                if(_program != null && _program.IsEnabled)
-                    _program.Terminate();
+            RunFanAction(() => {
+                if(!IsManualMode) return;
+                ApplyCoolingMode(ApplyManualLevelsInternal);
+            });
+        }
 
-                // Sliders are in %, convert each fan to its hardware level
-                byte cpuLvl = PctToLevel((int) Math.Round(CpuFanLevel));
-                byte gpuLvl = PctToLevel((int) Math.Round(GpuFanLevel));
-                Platform.Fans.SetMax(false);
-                Platform.Fans.SetOff(false);
-                Platform.Fans.SetLevels(new byte[] { cpuLvl, gpuLvl });
-                Platform.Fans.SetMode(Platform.Fans.GetMode());
-                Platform.Fans.SetCountdown(Config.FanCountdownExtendInterval);
-                ActivePreset = "Manual";
-                FanModeLabel = "手动";
-            } catch { }
+        private void ApplyManualLevelsInternal(bool strict) {
+            StopCurveInternal();
+            byte cpuLvl = PctToLevel((int) Math.Round(CpuFanLevel));
+            byte gpuLvl = PctToLevel((int) Math.Round(GpuFanLevel));
+            ApplyLevels(new byte[] { cpuLvl, gpuLvl }, strict);
+            IsManualMode = true;
+            ActivePreset = "Manual";
+            FanModeLabel = "手动";
         }
 #endregion
 
@@ -547,7 +691,7 @@ namespace OmenMon.AppWpf {
         public string CurveStatus { get => _curveStatus; set => Set(ref _curveStatus, value); }
 
         // Composes the status line from the threshold the engine settled on
-        private void ReportCurveStatus(byte temperature) {
+        private string GetCurveStatus(byte temperature) {
             string text;
             try {
                 byte level = _program.LastLevel;
@@ -558,39 +702,33 @@ namespace OmenMon.AppWpf {
             } catch {
                 text = string.Format("运行中 · 最高温 {0}°C", temperature);
             }
-            Application.Current?.Dispatcher.Invoke(() => CurveStatus = text);
+            return text;
         }
 
         // Runs a named temperature→speed curve in auto mode. The FanProgram
         // engine sets fan levels by temperature; PollHardware drives Update().
         public void RunCurve(string name) {
-            try {
+            RunFanAction(() => {
                 if(string.IsNullOrEmpty(name) || !Config.FanProgram.ContainsKey(name))
                     return;
+                ApplyCoolingMode(strict => {
+                    Platform.Fans.SetMax(false);
+                    Platform.Fans.SetOff(false);
+                    _programTick = 0;
+                    if(!_program.Run(name, strict: strict))
+                        throw new InvalidOperationException("曲线启动未确认");
 
-                // Auto mode: the curve (not the user) drives the fans, so the
-                // manual sliders stay locked.
-                IsManualMode = false;
-
-                Platform.Fans.SetMax(false);
-                Platform.Fans.SetOff(false);
-
-                _programTick = 0;
-                _program.Run(name);
-
-                ActivePreset = "Curve";
-                ActiveCurve  = name;
-                FanModeLabel = "曲线：" + name;
-            } catch { }
+                    IsManualMode = false;
+                    ActivePreset = "Curve";
+                    ActiveCurve = name;
+                    FanModeLabel = "曲线：" + name;
+                });
+            });
         }
 
         // Stops any running curve and hands the fans back to the BIOS default.
         public void StopCurve() {
-            try {
-                if(_program != null && _program.IsEnabled)
-                    _program.Terminate();
-                ActiveCurve = "";
-            } catch { }
+            RunFanAction(SetAuto);
         }
 #endregion
 
@@ -645,19 +783,20 @@ namespace OmenMon.AppWpf {
 
         // Loads a configuration file, replacing the active one, then reloads.
         public bool ImportConfig(string path) {
-            try {
-                System.IO.File.Copy(path, Config.FilePath, true);
-                Config.Load();                       // re-read curves + settings
-
-                // The sensor array is built once at start-up, so without this
-                // an imported <Temperature> section — including which sensors
-                // count towards the maximum that drives the fan curves — would
-                // not take effect until the application was restarted
-                Platform.ReloadTemperatureSensors();
-
-                PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CurveNames)));
-                return true;
-            } catch { return false; }
+            lock(_controlGate) {
+                if(_disposed || _suspended) return false;
+                ++_controlVersion;
+                // Imported sensor mappings must never take over an active stop.
+                if(!LeaveFanOff()) return false;
+                try {
+                    System.IO.File.Copy(path, Config.FilePath, true);
+                    Config.Load();
+                    Platform.ReloadTemperatureSensors();
+                    PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(CurveNames)));
+                    return true;
+                } catch { return false; }
+                finally { UpdatePollInterval(); }
+            }
         }
 
         // 0-55 hardware level  ↔  0-100 percentage helpers

@@ -24,6 +24,8 @@ namespace OmenMon.Hardware.Platform {
         // of all fans at the same time
         public byte[] GetLevels();
         public void SetLevels(byte[] levels);
+        public bool TrySetLevels(byte[] levels);
+        public bool TrySetLevels(byte[] levels, out string diagnostic);
 
         // Retrieves or sets maximum fan speed
         public bool GetMax();  
@@ -40,6 +42,7 @@ namespace OmenMon.Hardware.Platform {
         // Retrieves the fan off switch status
         // or switches the fan off
         public bool GetOff();
+        public bool TryGetOff(out bool flag);
         public void SetOff(bool flag);
 
 
@@ -115,36 +118,79 @@ namespace OmenMon.Hardware.Platform {
 
         // Sets the levels of all fans at the same time
         public void SetLevels(byte[] levels) {
-
-            // Set manual fan mode, if needed
             if(Config.FanLevelNeedManual)
                 this.SetManual(true);
 
-            // Depending on the configuration setting,
-            // use either the BIOS or the EC to set levels
             if(Config.FanLevelUseEc) {
-
-                // Try to set the speed for each fan individually
-                for(int i = 0; i < levels.Length; i++)
-                    this.Fan[i].SetLevel(levels[i]);
-
+                WriteLevels(levels);
             } else {
                 try {
-
-                    // Make a WMI BIOS call to set the level of both fans
-                    Hw.BiosSet(Hw.Bios.SetFanLevel, levels);
-
+                    WriteLevels(levels);
                 } catch {
-
-                    // It has been reported on some models the settings
-                    // take effect anyway, despite a BIOS error returned
-
-                    // Thus, silently ignore if the call failed
-
-                    // Regardless of the Config.BiosErrorReporting value,
-                    // status is always checked, and reported in CLI mode
-
+                    // Some models apply levels despite a BIOS error. Preserve
+                    // that compatibility for ordinary manual/curve commands.
                 }
+            }
+        }
+
+        // Safety transitions require an acknowledged command or fresh matching
+        // targets, not merely an ignored BIOS error or nonzero fan speeds.
+        public bool TrySetLevels(byte[] levels) {
+            return TrySetLevels(levels, out _);
+        }
+
+        public bool TrySetLevels(byte[] levels, out string diagnostic) {
+            diagnostic = "";
+            if(levels == null || levels.Length != this.Fan.Length) {
+                diagnostic = "风扇目标等级数量无效";
+                return false;
+            }
+
+            try {
+                if(Config.FanLevelNeedManual)
+                    this.SetManual(true);
+            } catch(Exception ex) {
+                diagnostic = "手动控制准备失败：" + ex.Message;
+                return false;
+            }
+
+            try {
+                WriteLevels(levels);
+                return true;
+            } catch(BiosException ex) when(!Config.FanLevelUseEc) {
+                // Some firmware applies 0x2E but returns an error. Verify both
+                // EC targets; FF FF must also match exactly, not actual RPM.
+                bool confirmed = true;
+                var readings = new string[levels.Length];
+                for(int i = 0; i < levels.Length; i++) {
+                    string prefix = "风扇" + (i + 1) + "目标 " + levels[i].ToString("X2");
+                    try {
+                        if(this.Fan[i].TryGetTargetLevel(out int target)) {
+                            confirmed &= target == levels[i];
+                            readings[i] = prefix + " / 读回 " + target.ToString("X2");
+                        } else {
+                            confirmed = false;
+                            readings[i] = prefix + " / 读回失败";
+                        }
+                    } catch(Exception readError) {
+                        confirmed = false;
+                        readings[i] = prefix + " / 读回失败：" + readError.Message;
+                    }
+                }
+                diagnostic = "BIOS 0x2E：" + ex.Message + "；" + string.Join("；", readings);
+                return confirmed;
+            } catch(Exception ex) {
+                diagnostic = (Config.FanLevelUseEc ? "EC 等级写入：" : "BIOS 等级写入：") + ex.Message;
+                return false;
+            }
+        }
+
+        private void WriteLevels(byte[] levels) {
+            if(Config.FanLevelUseEc) {
+                for(int i = 0; i < levels.Length; i++)
+                    this.Fan[i].SetLevel(levels[i]);
+            } else {
+                Hw.BiosSet(Hw.Bios.SetFanLevel, levels);
             }
         }
 
@@ -185,6 +231,19 @@ namespace OmenMon.Hardware.Platform {
         public bool GetOff() {
             this.Switch.Update();
             return ((PlatformData.FanSwitch) this.Switch.GetValue()) == PlatformData.FanSwitch.Off;
+        }
+
+        // The stop switch has two valid values. Never mistake a failed read or
+        // the component's old cached state for confirmation of a command.
+        public bool TryGetOff(out bool flag) {
+            flag = false;
+            if(!this.Switch.TryRead(out int value))
+                return false;
+            if(value != (int) PlatformData.FanSwitch.On
+                && value != (int) PlatformData.FanSwitch.Off)
+                return false;
+            flag = value == (int) PlatformData.FanSwitch.Off;
+            return true;
         }
 
         // Switches the fan off or back on

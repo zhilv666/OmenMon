@@ -24,8 +24,8 @@ namespace OmenMon.AppWpf {
             // 2×2 metric cards
             var grid = new UniformGrid { Columns = 2 };
             double g = T.CardGap / 2;
-            grid.Children.Add(MonCard("🌡", "CPU 温度", "CpuTemp", "{0}°C", "CpuTempBar", T.Blue,  new Thickness(0, 0, g, T.CardGap)));
-            grid.Children.Add(MonCard("🖥", "GPU 温度", "GpuTemp", "{0}°C", "GpuTempBar", T.Green, new Thickness(g, 0, 0, T.CardGap)));
+            grid.Children.Add(MonCard("🌡", "CPU 温度", "CpuTempText", "{0}°C", "CpuTempBar", T.Blue,  new Thickness(0, 0, g, T.CardGap)));
+            grid.Children.Add(MonCard("🖥", "GPU 温度", "GpuTempText", "{0}°C", "GpuTempBar", T.Green, new Thickness(g, 0, 0, T.CardGap)));
             grid.Children.Add(MonCard("🌀", "CPU 风扇", "CpuFanRpm", "{0} RPM", "CpuFanBar", T.Blue,  new Thickness(0, 0, g, 0), sub: "CpuFanPct"));
             grid.Children.Add(MonCard("🌀", "GPU 风扇", "GpuFanRpm", "{0} RPM", "GpuFanBar", T.Green, new Thickness(g, 0, 0, 0), sub: "GpuFanPct"));
             root.Children.Add(grid);

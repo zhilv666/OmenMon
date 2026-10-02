@@ -19,6 +19,9 @@ namespace OmenMon.Hardware.Platform {
         public int GetLevel();  // Retrieves the fan level [krpm]
         public int GetRate();   // Retrieves the fan rate [%]
         public int GetSpeed();  // Retrieves the fan speed [rpm]
+        public bool TryGetRate(out int rate);
+        public bool TryGetSpeed(out int speed);
+        public bool TryGetTargetLevel(out int level);
 
         public void SetLevel(int level);  // Sets the fan level [krpm]
         public void SetRate(int rate);    // Sets the fan rate [%]
@@ -81,6 +84,19 @@ namespace OmenMon.Hardware.Platform {
         public virtual int GetSpeed() {
             this.Speed.Update();
             return this.Speed.GetValue();
+        }
+
+        public bool TryGetRate(out int rate) {
+            return this.RateRead.TryRead(out rate);
+        }
+
+        public bool TryGetSpeed(out int speed) {
+            return this.Speed.TryRead(out speed);
+        }
+
+        // The EC target is distinct from the BIOS current speed level.
+        public bool TryGetTargetLevel(out int level) {
+            return this.Level.TryRead(out level);
         }
 
         // Sets the fan level [krpm]

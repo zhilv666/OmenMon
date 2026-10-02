@@ -5,6 +5,7 @@
 using System;
 using System.Windows;
 using System.Windows.Forms;
+using Microsoft.Win32;
 using OmenMon.Hardware.Platform;
 using OmenMon.Library;
 using Application = System.Windows.Application;
@@ -61,6 +62,7 @@ namespace OmenMon.AppWpf {
                 Hw.EcInit();
                 Platform = new Platform();
                 ViewModel = new HardwareViewModel(Platform);
+                SystemEvents.PowerModeChanged += OnPowerModeChanged;
 
                 // Remember which curve is running, so it does not have to be
                 // applied by hand after every restart
@@ -112,11 +114,39 @@ namespace OmenMon.AppWpf {
             } catch { }
         }
 
+        private void OnPowerModeChanged(object sender, PowerModeChangedEventArgs e) {
+            if(e.Mode == PowerModes.Suspend)
+                ViewModel?.HandlePowerChange(true);
+            else if(e.Mode == PowerModes.Resume)
+                ViewModel?.HandlePowerChange(false);
+        }
+
+        protected override void OnSessionEnding(SessionEndingCancelEventArgs e) {
+            base.OnSessionEnding(e);
+            if(!e.Cancel && ViewModel != null && !ViewModel.TryPrepareExit())
+                e.Cancel = true;
+        }
+
+        private void RequestExit() {
+            if(ViewModel == null || ViewModel.TryPrepareExit()) {
+                Shutdown();
+            } else {
+                ShowMain();
+                _tray?.ShowBalloonTip(5000, "风扇恢复未确认",
+                    "已取消退出并继续尝试恢复自动散热，请检查实际风扇转速。", ToolTipIcon.Warning);
+            }
+        }
+
         protected override void OnExit(ExitEventArgs e) {
-            SaveConfigNow();
-            ViewModel?.Dispose();
-            _tray?.Dispose();
-            base.OnExit(e);
+            SystemEvents.PowerModeChanged -= OnPowerModeChanged;
+            try {
+                // Restore before saving settings or tearing down the UI.
+                ViewModel?.Dispose();
+            } finally {
+                SaveConfigNow();
+                _tray?.Dispose();
+                base.OnExit(e);
+            }
         }
 #endregion
 
@@ -182,7 +212,12 @@ namespace OmenMon.AppWpf {
                     item.DropDownItems.Add(new ToolStripMenuItem());
                     item.DropDownOpening += (s, ev) => BuildAutoSubmenu((ToolStripMenuItem) s);
                 } else {
-                    item.Click += (s, ev) => ViewModel.ApplyPreset((string) ((ToolStripMenuItem) s).Tag);
+                    item.Click += (s, ev) => {
+                        string key = (string) ((ToolStripMenuItem) s).Tag;
+                        ViewModel.ApplyPreset(key);
+                        if(HardwareViewModel.GetPreset(key).IsOff && ViewModel.ActivePreset != key)
+                            _tray?.ShowBalloonTip(5000, "未关闭风扇", ViewModel.StatusText, ToolTipIcon.Warning);
+                    };
                 }
 
                 fanMenu.DropDownItems.Add(item);
@@ -205,7 +240,7 @@ namespace OmenMon.AppWpf {
             _menu.Items.Add(new ToolStripSeparator());
 
             var itemExit = new ToolStripMenuItem("退出");
-            itemExit.Click += (s, ev) => Shutdown();
+            itemExit.Click += (s, ev) => RequestExit();
             _menu.Items.Add(itemExit);
 
             _tray = new NotifyIcon {

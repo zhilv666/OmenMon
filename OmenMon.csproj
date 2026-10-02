@@ -75,6 +75,7 @@
         <Compile Include="Hardware\Bios.cs"/>
         <Compile Include="Hardware\BiosCtl.cs"/>
         <Compile Include="Hardware\BiosData.cs"/>
+        <Compile Include="Hardware\CpuTemperature.cs"/>
         <Compile Include="Hardware\Ec.cs"/>
         <Compile Include="Hardware\EcData.cs"/>
         <Compile Include="Hardware\EcMutex.cs"/>
@@ -112,6 +113,7 @@
     <!-- WPF C# source files (pure code, no XAML) -->
     <ItemGroup>
         <Compile Include="App\Wpf\HardwareViewModel.cs"/>
+        <Compile Include="App\Wpf\FanOffController.cs"/>
         <Compile Include="App\Wpf\Theme.cs"/>
         <Compile Include="App\Wpf\WpfApp.cs"/>
         <Compile Include="App\Wpf\MainWindow.cs"/>

@@ -260,6 +260,7 @@ namespace OmenMon.Library {
             }
             else {
                 App.Error("ErrEcLock");
+                throw new TimeoutException("Embedded Controller lock timed out.");
             }
         }
 
@@ -280,7 +281,7 @@ namespace OmenMon.Library {
                 }
             } else {
                 App.Error("ErrEcLock");
-                return default(TResult);
+                throw new TimeoutException("Embedded Controller lock timed out.");
             }
         }
 

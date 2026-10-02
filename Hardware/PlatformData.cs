@@ -41,7 +41,8 @@ namespace OmenMon.Hardware.Platform {
         // Link type
         public enum LinkType {
             EmbeddedController,
-            WmiBios
+            WmiBios,
+            Msr
         }
 
         // Value trend type

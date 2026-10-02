@@ -109,6 +109,20 @@ namespace OmenMon.Hardware.Platform {
 
         }
 
+        // Package-level MSR reads need a single physical processor: the driver
+        // runs on the current logical CPU, which must belong to that package.
+        public Dictionary<string, string> GetSingleProcessor() {
+            if(!IsInitialized) return null;
+            Dictionary<string, string> result = null;
+            foreach(CimInstance instance in this.session.EnumerateInstances(WMI_INFO_NAMESPACE, "Win32_Processor")) {
+                using(instance) {
+                    if(result != null) return null;
+                    result = GetProperties(instance);
+                }
+            }
+            return result;
+        }
+
         // Retrieves baseboard information
         public Dictionary<string, string> GetBaseBoard() {
 

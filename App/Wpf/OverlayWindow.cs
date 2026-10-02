@@ -165,8 +165,8 @@ namespace OmenMon.AppWpf {
         // notification, rebuilding and freezing the arc geometry a couple of
         // dozen times per poll for no visible difference.
         private void OnVmChanged(object s, PropertyChangedEventArgs e) {
-            if(e.PropertyName != nameof(HardwareViewModel.CpuTemp)
-                && e.PropertyName != nameof(HardwareViewModel.GpuTemp))
+            if(e.PropertyName != nameof(HardwareViewModel.CpuTempBar)
+                && e.PropertyName != nameof(HardwareViewModel.GpuTempBar))
                 return;
             Dispatcher.Invoke(RunUpdaters);
         }
@@ -199,8 +199,8 @@ namespace OmenMon.AppWpf {
 
             var root = new StackPanel();
             root.Children.Add(BuildHeader());
-            root.Children.Add(BuildComponent("CPU", "CpuTemp", () => _vm.CpuTempBar, "CpuFanBar", "CpuFanRpm", "CpuFanPct", Blue));
-            root.Children.Add(BuildComponent("GPU", "GpuTemp", () => _vm.GpuTempBar, "GpuFanBar", "GpuFanRpm", "GpuFanPct", Green));
+            root.Children.Add(BuildComponent("CPU", "CpuTempText", () => _vm.CpuTempBar, "CpuFanBar", "CpuFanRpm", "CpuFanPct", Blue));
+            root.Children.Add(BuildComponent("GPU", "GpuTempText", () => _vm.GpuTempBar, "GpuFanBar", "GpuFanRpm", "GpuFanPct", Green));
             root.Children.Add(BuildFooter());
 
             _shellBorder.Child = root;
@@ -220,8 +220,8 @@ namespace OmenMon.AppWpf {
 
             var root = new StackPanel();
             root.Children.Add(BuildCompactHeader());
-            root.Children.Add(BuildCompactRow("CPU", "CpuTemp", "CpuTempBar", "CpuFanRpm", "CpuFanPct", Blue));
-            root.Children.Add(BuildCompactRow("GPU", "GpuTemp", "GpuTempBar", "GpuFanRpm", "GpuFanPct", Green));
+            root.Children.Add(BuildCompactRow("CPU", "CpuTempText", "CpuTempBar", "CpuFanRpm", "CpuFanPct", Blue));
+            root.Children.Add(BuildCompactRow("GPU", "GpuTempText", "GpuTempBar", "GpuFanRpm", "GpuFanPct", Green));
             root.Children.Add(BuildCompactFooter());
 
             _shellBorder.Child = root;

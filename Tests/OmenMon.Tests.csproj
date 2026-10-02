@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+    <PropertyGroup>
+        <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
+        <AssemblyName>OmenMon.Tests</AssemblyName>
+        <OutputType>Exe</OutputType>
+        <TargetFrameworkVersion>v4.8</TargetFrameworkVersion>
+        <PlatformTarget>x64</PlatformTarget>
+        <LangVersion>11.0</LangVersion>
+        <OutputPath>Bin\</OutputPath>
+        <IntermediateOutputPath>Obj\</IntermediateOutputPath>
+        <AutoGenerateBindingRedirects>true</AutoGenerateBindingRedirects>
+    </PropertyGroup>
+    <ItemGroup>
+        <Reference Include="System"/>
+        <Reference Include="System.Core"/>
+        <Reference Include="PresentationCore"/>
+        <Reference Include="PresentationFramework"/>
+        <Reference Include="WindowsBase"/>
+        <ProjectReference Include="..\OmenMon.csproj">
+            <Project>{F6104868-81A7-4D09-8AD2-8CF261D58319}</Project>
+            <Name>OmenMon</Name>
+        </ProjectReference>
+        <Compile Include="FanOffTests.cs"/>
+        <Compile Include="..\App\Wpf\FanOffController.cs">
+            <Link>FanOffController.cs</Link>
+        </Compile>
+    </ItemGroup>
+    <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets"/>
+</Project>
